@@ -44,16 +44,14 @@ pub fn eval(e: &Exprs, env: &mut RunEnv, id: ExprId) -> Value {
             Value::Fn(name, body, env_inner) => {
                 let arg = eval(e, env, *arg);
                 let mut inner = env_inner.push(name, arg);
-                let res = eval(e, &mut inner, body);
-                res
+                eval(e, &mut inner, body)
             }
             _ => panic!("Expected function"),
         },
         Expr::Let(name, value, body) => {
             let value = eval(e, env, *value);
             let mut inner = env.push(name, value);
-            let res = eval(e, &mut inner, *body);
-            res
+            eval(e, &mut inner, *body)
         }
     }
 }

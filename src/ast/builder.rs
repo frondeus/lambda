@@ -74,7 +74,7 @@ pub trait BuilderFnExt: BuilderFn {
         call(self, arg)
     }
 
-    fn calln(self, arg: impl CallnArgs) -> impl BuilderFn
+    fn call_n(self, arg: impl CallnArgs) -> impl BuilderFn
     where
         Self: Sized,
     {
@@ -107,7 +107,7 @@ where
     }
 }
 
-pub fn _letn<F: BuilderFn>(name: &'static str, value: F) -> Let<F> {
+pub fn let_n<F: BuilderFn>(name: &'static str, value: F) -> Let<F> {
     Let(name, value)
 }
 
@@ -130,9 +130,9 @@ impl DefLike for (&'static str, &'static str) {
 
 pub struct Let<F: BuilderFn>(&'static str, F);
 pub trait LetLike {
-    fn then(self, then: impl BuilderFn) -> impl BuilderFn;
+    fn _in(self, then: impl BuilderFn) -> impl BuilderFn;
 
-    fn and<G: BuilderFn>(self, name: &'static str, value: G) -> (Self, Let<G>)
+    fn and_let<G: BuilderFn>(self, name: &'static str, value: G) -> (Self, Let<G>)
     where
         Self: Sized,
     {
@@ -145,15 +145,15 @@ where
     A: LetLike,
     B: LetLike,
 {
-    fn then(self, then: impl BuilderFn) -> impl BuilderFn {
+    fn _in(self, then: impl BuilderFn) -> impl BuilderFn {
         let (a, b) = self;
-        let b = b.then(then);
-        a.then(b)
+        let b = b._in(then);
+        a._in(b)
     }
 }
 
 impl<F: BuilderFn> LetLike for Let<F> {
-    fn then(self, then: impl BuilderFn) -> impl BuilderFn {
+    fn _in(self, then: impl BuilderFn) -> impl BuilderFn {
         _let(self.0, self.1, then)
     }
 }
@@ -171,7 +171,7 @@ mod tests {
         )
         .root();
 
-        let b = _letn("a", true).and("b", false).then(false).root();
+        let b = let_n("a", true).and_let("b", false)._in(false).root();
 
         assert_eq!(a, b);
     }

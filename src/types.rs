@@ -1,4 +1,4 @@
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, VecDeque};
 
 use crate::ast::{Expr, ExprId, Exprs};
 
@@ -34,24 +34,23 @@ struct Con {
 
 #[derive(Default, Debug)]
 struct Cons {
-    cons: HashSet<Con>,
+    cons: VecDeque<Con>,
 }
 
 impl Cons {
-    fn push(&mut self, con: Con) {
-        if con.left == con.right {
+    fn push(&mut self, left: TermId, right: TermId) {
+        if left == right {
             return;
         }
-        // eprintln!("Insert {con:?}");
-        self.cons.insert(con);
+        if self.cons.iter().any(|c| c == &Con { left, right }) {
+            return;
+        }
+
+        self.cons.push_back(Con { left, right });
     }
 
     fn pop(&mut self) -> Option<Con> {
-        let cons = std::mem::take(&mut self.cons);
-        let mut cons = cons.into_iter().collect::<Vec<_>>();
-        let con = cons.pop();
-        self.cons = cons.into_iter().collect();
-        con
+        self.cons.pop_front()
     }
 }
 
@@ -59,9 +58,10 @@ pub fn type_of(e: &Exprs, env: &mut TypeEnv, id: ExprId) -> Term {
     let mut cons = Default::default();
     let term_id = gather_cons(e, env, id, &mut cons);
     // eprintln!("Before unify:");
+    // dbg!(&env);
     // eprintln!("Cons: {cons:?}");
-    expr_print(e, id, env);
     let term_id = unify(env, term_id, cons);
+    // expr_print(e, id, env);
 
     env.get_term(term_id).expect("Term")
 }
@@ -98,10 +98,7 @@ fn gather_cons(e: &Exprs, env: &mut TypeEnv, id: ExprId, cons: &mut Cons) -> Ter
                     // eprintln!("{id:?} - term_id {term_id:?} must be fn: {has_to_be_function:?}");
                     let has_to_be_function = env.add_term(has_to_be_function);
                     // dbg!(&term_id, has_to_be_function);
-                    cons.push(Con {
-                        left: term_id,
-                        right: has_to_be_function,
-                    });
+                    cons.push(term_id, has_to_be_function);
 
                     (arg_id, some_to)
                 }
@@ -121,10 +118,7 @@ fn gather_cons(e: &Exprs, env: &mut TypeEnv, id: ExprId, cons: &mut Cons) -> Ter
 
             // dbg!(&from, &to);
             // eprintln!("{id:?} - From must be equal to arg_id");
-            cons.push(Con {
-                left: from,
-                right: arg_id,
-            });
+            cons.push(from, arg_id);
             env.term_id_for_expr(id, to)
         }
         Expr::Let(name, value_id, then) => {
@@ -163,8 +157,11 @@ fn gather_cons(e: &Exprs, env: &mut TypeEnv, id: ExprId, cons: &mut Cons) -> Ter
 }
 
 fn unify(env: &mut TypeEnv, mut root_id: TermId, mut cons: Cons) -> TermId {
+    dbg!(&cons);
     while let Some(Con { left, right }) = cons.pop() {
+        // eprint!("{left:?} =? {right:?}  ");
         if left == right {
+            // eprintln!("eq");
             continue;
         }
         let l = env.get_term(left).expect("Term");
@@ -172,17 +169,26 @@ fn unify(env: &mut TypeEnv, mut root_id: TermId, mut cons: Cons) -> TermId {
 
         match (l, r) {
             (Term::Var(_), _r) => {
+                // eprintln!("lvar");
                 replace_all(env, left, right, &mut cons, &mut root_id);
                 continue;
             }
             (_l, Term::Var(_)) => {
+                // eprintln!("rvar");
                 replace_all(env, right, left, &mut cons, &mut root_id);
                 continue;
             }
             (Term::Mono(Type::Function(fr_a, to_a)), Term::Mono(Type::Function(fr_b, to_b))) => {
-                todo!()
+                // eprintln!("fun fun: {fr_a:?}->{to_a:?}  =? {fr_b:?}-> {to_b:?}");
+                cons.push(fr_a, fr_b);
+                cons.push(to_a, to_b);
+                continue;
             }
-            (l, r) => panic!("Does not unify: {l:?} {r:?}"),
+            (l, r) => {
+                // eprintln!("uh oh");
+                // dbg!(&env, &cons);
+                panic!("Does not unify: {l:?} {r:?}")
+            }
         }
     }
     root_id
@@ -212,8 +218,8 @@ fn replace_all(
     cons: &mut Cons,
     root_id: &mut TermId,
 ) {
-    let l_debug = env.get_term(left).unwrap();
-    let r_debug = env.get_term(right).unwrap();
+    // let l_debug = env.get_term(left).unwrap();
+    // let r_debug = env.get_term(right).unwrap();
     // eprintln!("Replace all {left:?} ({l_debug:?}) with {right:?} ({r_debug:?})");
 
     let mut cons_vec = std::mem::take(&mut cons.cons)
@@ -293,10 +299,10 @@ impl TypeEnv {
         self.exprs.get(&id).cloned()
     }
 
-    fn term_of(&self, id: ExprId) -> Option<Term> {
-        let id = self.term_id_of(id)?;
-        self.get_term(id)
-    }
+    // fn term_of(&self, id: ExprId) -> Option<Term> {
+    //     let id = self.term_id_of(id)?;
+    //     self.get_term(id)
+    // }
 
     fn term_id_for_expr(&mut self, id: ExprId, term_id: TermId) -> TermId {
         self.exprs.insert(id, term_id);

@@ -6,115 +6,141 @@ fn main() {
 mod tests {
     use lambda::ast::builder::*;
     use lambda::runtime::{eval, Value};
-    use lambda::types::{type_of, Term, Type};
+    use lambda::types::{Term, Type};
 
-    macro_rules! debug_ty {
-        ($exprs: expr, $id: expr) => {
-            let mut env = Default::default();
-            type_of($exprs, &mut env, $id);
-            lambda::types::expr_print($exprs, $id, &env);
-        };
+    struct Test {
+        exprs: lambda::ast::Exprs,
+        root: lambda::ast::ExprId,
+        types: lambda::types::TypeEnv,
+        rt: lambda::runtime::RunEnv,
+        term: lambda::types::Term,
     }
 
-    macro_rules! assert_ty {
-        ($exprs: expr, $id: expr, $expected: expr) => {
-            assert_eq!($expected, type_of($exprs, &mut Default::default(), $id));
-        };
+    trait TestExt: BuilderFn + Sized {
+        fn test(self) -> Test {
+            let (root, exprs) = self.root();
+            let mut types = Default::default();
+            let rt = Default::default();
+            let term = lambda::types::type_of(&exprs, &mut types, root);
+            Test {
+                exprs,
+                root,
+                rt,
+                types,
+                term,
+            }
+        }
     }
-
-    macro_rules! assert_print_ty {
-        ($exprs: expr, $id: expr, $expected: expr) => {
-            let mut env = Default::default();
-            let id = type_of($exprs, &mut env, $id);
-            lambda::types::expr_print($exprs, $id, &env);
-            assert_eq!($expected, env.print_term(id));
-        };
-    }
-
-    macro_rules! assert_val {
-        ($exprs: expr, $id: expr, $expected: expr) => {
-            assert_eq!($expected, eval($exprs, &mut Default::default(), $id));
-        };
-    }
-
-    macro_rules! assert_print_val {
-        ($exprs: expr, $id: expr, $expected: expr) => {
-            assert_eq!(
-                $expected,
-                eval($exprs, &mut Default::default(), $id).to_string()
-            );
-        };
+    impl<B: BuilderFn> TestExt for B {}
+    impl Test {
+        fn assert_eval(&mut self, expected: Value) -> &mut Self {
+            let ret = eval(&self.exprs, &mut self.rt, self.root);
+            assert_eq!(expected, ret);
+            self
+        }
+        fn assert_term(&mut self, expected: Term) -> &mut Self {
+            assert_eq!(expected, self.term);
+            self
+        }
+        fn assert_print_term(&mut self, expected: &str) -> &mut Self {
+            assert_eq!(expected, self.types.print_term(self.term.clone()));
+            self
+        }
+        fn assert_print_eval(&mut self, expected: &str) -> &mut Self {
+            let ret = eval(&self.exprs, &mut self.rt, self.root);
+            assert_eq!(expected, ret.to_string());
+            self
+        }
     }
 
     #[test]
     fn test_fn_call() {
-        let (root, exprs) = _letn("f", "x".ret("x")).then("f".call(true)).root();
-
-        assert_ty!(&exprs, root, Term::Mono(Type::Bool));
-        assert_print_ty!(&exprs, root, "Bool");
-        assert_val!(&exprs, root, Value::Bool(true));
+        let_n("f", "x".ret("x"))
+            ._in("f".call(true))
+            .test()
+            .assert_term(Term::Mono(Type::Bool))
+            .assert_print_term("Bool")
+            .assert_eval(Value::Bool(true));
     }
 
     #[test]
     fn test_ident() {
-        let (root, exprs) = "x".ret("x").root();
-
-        assert_print_ty!(&exprs, root, "(T0 -> T0)");
-        assert_print_val!(&exprs, root, "fn x.");
+        "x".ret("x")
+            .test()
+            .assert_print_term("(T0 -> T0)")
+            .assert_print_eval("fn x.");
     }
 
     #[test]
     fn test_closure() {
-        let (root, exprs) = ("y", "x").ret("y").root();
-
-        assert_print_ty!(&exprs, root, "(T0 -> (T1 -> T0))");
-        assert_print_val!(&exprs, root, "fn y.");
+        ("y", "x")
+            .ret("y")
+            .test()
+            .assert_print_term("(T0 -> (T1 -> T0))")
+            .assert_print_eval("fn y.");
     }
 
     #[test]
     fn test_closure_curry_call() {
-        let (root, exprs) = _let("f", ("y", "x").ret("y"), "f".call(true)).root();
-
-        assert_print_ty!(&exprs, root, "(T1 -> Bool)");
-        assert_print_val!(&exprs, root, "fn x.");
+        _let("f", ("y", "x").ret("y"), "f".call(true))
+            .test()
+            .assert_print_term("(T1 -> Bool)")
+            .assert_print_eval("fn x.");
     }
 
     #[test]
     fn test_closure_call() {
-        let (root, exprs) = ("y", "x").ret("y").calln((true, false)).root();
-
-        assert_print_ty!(&exprs, root, "Bool");
-        assert_print_val!(&exprs, root, "true");
+        ("y", "x")
+            .ret("y")
+            .call_n((true, false))
+            .test()
+            .assert_print_term("Bool")
+            .assert_print_eval("true");
     }
 
     #[test]
     fn test_fn_ret_tru() {
-        let (root, exprs) = "x".ret(true).root();
-
-        assert_print_ty!(&exprs, root, "(T0 -> Bool)");
-        assert_print_val!(&exprs, root, "fn x.");
+        "x".ret(true)
+            .test()
+            .assert_print_term("(T0 -> Bool)")
+            .assert_print_eval("fn x.");
     }
 
     #[test]
     fn test_two_fn() {
-        let (root, exprs) = _letn("f", "a".ret("a"))
-            .and("g", "a".ret(true))
-            .and("h", ("x", "y").ret("x"))
-            .then("h".calln(("f".call(true), "g".call(true))))
-            .root();
-
-        assert_print_ty!(&exprs, root, "Bool");
-        assert_print_val!(&exprs, root, "true");
+        let_n("f", "a".ret("a"))
+            .and_let("g", "a".ret(true))
+            .and_let("h", ("x", "y").ret("x"))
+            ._in("h".call_n(("f".call(true), "g".call(true))))
+            .test()
+            .assert_print_term("Bool")
+            .assert_print_eval("true");
     }
 
     #[test]
     fn test_let_poly() {
-        let (root, exprs) = _letn("id", "x".ret("x"))
-            .and("h", ("a", "b").ret("a"))
-            .then("h".calln(("id".call("id"), "id".call(true))))
-            .root();
+        let_n("id", "x".ret("x"))
+            .and_let("h", ("a", "b").ret("a"))
+            ._in("h".call_n(("id".call("id"), "id".call(true))))
+            .test()
+            .assert_print_term("ForAll (T0): (T0 -> T0)")
+            .assert_print_eval("fn x.");
+    }
 
-        assert_print_ty!(&exprs, root, "ForAll (T0): (T0 -> T0)");
-        assert_print_val!(&exprs, root, "fn x.");
+    #[test]
+    #[should_panic(expected = "Does not unify: Mono(Bool) Mono(Function($t1, $t9))")]
+    fn test_not_let_poly() {
+        let_n(
+            "f",
+            "g".ret(
+                let_n("a", "g".call(true))
+                    .and_let("b", "g".call("g"))
+                    ._in("a"),
+            ),
+        )
+        ._in("f".call("id".ret("id")))
+        .test()
+        .assert_print_term("Bool")
+        .assert_print_eval("true");
     }
 }
