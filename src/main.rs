@@ -4,7 +4,7 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
-    use lambda::ast::Builder;
+    use lambda::ast::builder::*;
     use lambda::runtime::{eval, Value};
     use lambda::types::{type_of, Term, Type};
 
@@ -48,13 +48,7 @@ mod tests {
 
     #[test]
     fn test_fn_call() {
-        let (root, exprs) = Builder::root(|b| {
-            b.let_(
-                "f",
-                |b| b.def("x", |b| b.var("x")),
-                |b| b.call(|b| b.var("f"), |b| b.tru()),
-            )
-        });
+        let (root, exprs) = _letn("f", "x".ret("x")).then("f".call(true)).root();
 
         assert_ty!(&exprs, root, Term::Mono(Type::Bool));
         assert_print_ty!(&exprs, root, "Bool");
@@ -63,7 +57,7 @@ mod tests {
 
     #[test]
     fn test_ident() {
-        let (root, exprs) = Builder::root(|b| b.def("x", |b| b.var("x")));
+        let (root, exprs) = "x".ret("x").root();
 
         assert_print_ty!(&exprs, root, "(T0 -> T0)");
         assert_print_val!(&exprs, root, "fn x.");
@@ -71,7 +65,7 @@ mod tests {
 
     #[test]
     fn test_closure() {
-        let (root, exprs) = Builder::root(|b| b.def("y", |b| b.def("x", |b| b.var("y"))));
+        let (root, exprs) = ("y", "x").ret("y").root();
 
         assert_print_ty!(&exprs, root, "(T0 -> (T1 -> T0))");
         assert_print_val!(&exprs, root, "fn y.");
@@ -79,13 +73,7 @@ mod tests {
 
     #[test]
     fn test_closure_curry_call() {
-        let (root, exprs) = Builder::root(|b| {
-            b.let_(
-                "f",
-                |b| b.def("y", |b| b.def("x", |b| b.var("y"))),
-                |b| b.call(|b| b.var("f"), |b| b.tru()),
-            )
-        });
+        let (root, exprs) = _let("f", ("y", "x").ret("y"), "f".call(true)).root();
 
         assert_print_ty!(&exprs, root, "(T1 -> Bool)");
         assert_print_val!(&exprs, root, "fn x.");
@@ -93,12 +81,7 @@ mod tests {
 
     #[test]
     fn test_closure_call() {
-        let (root, exprs) = Builder::root(|b| {
-            b.call(
-                |b| b.call(|b| b.def("y", |b| b.def("x", |b| b.var("y"))), |b| b.tru()),
-                |b| b.fals(),
-            )
-        });
+        let (root, exprs) = ("y", "x").ret("y").calln((true, false)).root();
 
         assert_print_ty!(&exprs, root, "Bool");
         assert_print_val!(&exprs, root, "true");
@@ -106,7 +89,7 @@ mod tests {
 
     #[test]
     fn test_fn_ret_tru() {
-        let (root, exprs) = Builder::root(|b| b.def("x", |b| b.tru()));
+        let (root, exprs) = "x".ret(true).root();
 
         assert_print_ty!(&exprs, root, "(T0 -> Bool)");
         assert_print_val!(&exprs, root, "fn x.");
@@ -114,35 +97,11 @@ mod tests {
 
     #[test]
     fn test_two_fn() {
-        let (root, exprs) = Builder::root(|b| {
-            b.let_(
-                "f",
-                |b| b.def("a", |b| b.var("a")),
-                |b| {
-                    b.let_(
-                        "g",
-                        |b| b.def("a", |b| b.tru()),
-                        |b| {
-                            b.let_(
-                                "h",
-                                |b| b.def("x", |b| b.def("y", |b| b.var("x"))),
-                                |b| {
-                                    b.call(
-                                        |b| {
-                                            b.call(
-                                                |b| b.var("h"),
-                                                |b| b.call(|b| b.var("f"), |b| b.tru()),
-                                            )
-                                        },
-                                        |b| b.call(|b| b.var("g"), |b| b.tru()),
-                                    )
-                                },
-                            )
-                        },
-                    )
-                },
-            )
-        });
+        let (root, exprs) = _letn("f", "a".ret("a"))
+            .and("g", "a".ret(true))
+            .and("h", ("x", "y").ret("x"))
+            .then("h".calln(("f".call(true), "g".call(true))))
+            .root();
 
         assert_print_ty!(&exprs, root, "Bool");
         assert_print_val!(&exprs, root, "true");
@@ -150,35 +109,10 @@ mod tests {
 
     #[test]
     fn test_let_poly() {
-        let (root, exprs) = Builder::root(|b| {
-            b.let_(
-                "id",
-                |b| b.def("x", |b| b.var("x")),
-                |b| {
-                    b.let_(
-                        "h",
-                        |b| b.def("a", |b| b.def("b", |b| b.var("a"))),
-                        |b| {
-                            b.call(
-                                |b| {
-                                    b.call(
-                                        |b| b.var("h"),
-                                        |b| b.call(|b| b.var("id"), |b| b.var("id")),
-                                    )
-                                },
-                                |b| {
-                                    b.call(
-                                        // ID with bool
-                                        |b| b.var("id"),
-                                        |b| b.tru(),
-                                    )
-                                },
-                            )
-                        },
-                    )
-                },
-            )
-        });
+        let (root, exprs) = _letn("id", "x".ret("x"))
+            .and("h", ("a", "b").ret("a"))
+            .then("h".calln(("id".call("id"), "id".call(true))))
+            .root();
 
         assert_print_ty!(&exprs, root, "ForAll (T0): (T0 -> T0)");
         assert_print_val!(&exprs, root, "fn x.");
