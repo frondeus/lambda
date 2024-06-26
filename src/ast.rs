@@ -1,3 +1,5 @@
+pub mod builder;
+
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ExprId(usize);
 
@@ -10,13 +12,22 @@ pub enum Expr {
     Let(&'static str, ExprId, ExprId), // let x = 0; x
 }
 
-#[derive(Default, PartialEq, Debug)]
+#[derive(Default, PartialEq)]
 pub struct Exprs {
     e: Vec<Expr>,
 }
 
 impl Exprs {
     pub fn push(&mut self, e: Expr) -> ExprId {
+        if let Some(id) = self
+            .e
+            .iter()
+            .enumerate()
+            .find(|(_, en)| en == &&e)
+            .map(|(id, _)| ExprId(id))
+        {
+            return id;
+        }
         let id = ExprId(self.e.len());
         self.e.push(e);
         id
@@ -25,63 +36,48 @@ impl Exprs {
     pub fn get(&self, id: ExprId) -> &Expr {
         &self.e[id.0]
     }
+
+    pub fn debug(&self, root: ExprId) -> DebugExpr {
+        self.get(root).debug(self)
+    }
 }
 
-pub mod builder;
-
-// #[derive(Default)]
-// pub struct Builder {
-//     exprs: Exprs,
-// }
-
-// impl Builder {
-//     pub fn root(root: impl Fn(&mut Builder) -> ExprId) -> (ExprId, Exprs) {
-//         let mut builder = Builder::default();
-//         let id = (root)(&mut builder);
-//         (id, builder.exprs)
-//     }
-
-//     pub fn var(&mut self, name: &'static str) -> ExprId {
-//         self.exprs.push(Expr::Var(name))
-//     }
-
-//     pub fn tru(&mut self) -> ExprId {
-//         self.exprs.push(Expr::Bool(true))
-//     }
-
-//     pub fn fals(&mut self) -> ExprId {
-//         self.exprs.push(Expr::Bool(false))
-//     }
-
-//     pub fn def(&mut self, arg: &'static str, ret: impl Fn(&mut Builder) -> ExprId) -> ExprId {
-//         let ret = (ret)(self);
-//         self.exprs.push(Expr::Def(arg, ret))
-//     }
-
-//     pub fn let_(
-//         &mut self,
-//         name: &'static str,
-//         value: impl Fn(&mut Builder) -> ExprId,
-//         then: impl Fn(&mut Builder) -> ExprId,
-//     ) -> ExprId {
-//         let value = (value)(self);
-//         let then = (then)(self);
-//         self.exprs.push(Expr::Let(name, value, then))
-//     }
-
-//     pub fn call(
-//         &mut self,
-//         func: impl Fn(&mut Builder) -> ExprId,
-//         arg: impl Fn(&mut Builder) -> ExprId,
-//     ) -> ExprId {
-//         let func = (func)(self);
-//         let arg = (arg)(self);
-//         self.exprs.push(Expr::Call(func, arg))
-//     }
-// }
-
+#[derive(PartialEq)]
+pub struct DebugExpr<'a> {
+    ex: &'a Exprs,
+    e: &'a Expr,
+}
+impl Expr {
+    pub fn debug<'a>(&'a self, e: &'a Exprs) -> DebugExpr<'a> {
+        DebugExpr { e: self, ex: e }
+    }
+}
 impl std::fmt::Debug for ExprId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "$e{}", self.0)
+    }
+}
+impl<'a> std::fmt::Debug for DebugExpr<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.e {
+            Expr::Bool(b) => f.debug_tuple("Bool").field(b).finish(),
+            Expr::Var(v) => write!(f, "{v}"), //f.debug_tuple("Var").field(v).finish(),
+            Expr::Def(arg, ret) => f
+                .debug_tuple("Def")
+                .field(arg)
+                .field(&self.ex.debug(*ret))
+                .finish(),
+            Expr::Call(fun, arg) => f
+                .debug_tuple("Call")
+                .field(&self.ex.debug(*fun))
+                .field(&self.ex.debug(*arg))
+                .finish(),
+            Expr::Let(name, value, then) => f
+                .debug_tuple("Let")
+                .field(name)
+                .field(&self.ex.debug(*value))
+                .field(&self.ex.debug(*then))
+                .finish(),
+        }
     }
 }

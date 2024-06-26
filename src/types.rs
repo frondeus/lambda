@@ -5,13 +5,13 @@ use crate::ast::{Expr, ExprId, Exprs};
 mod debug;
 pub use debug::*;
 
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(PartialEq, Clone, Copy)]
 pub enum Type {
     Bool,
     Function(TermId, TermId),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub enum Term {
     Mono(Type),
     /// For All T, U: ...
@@ -42,7 +42,8 @@ struct Cons {
 }
 
 impl Cons {
-    fn push(&mut self, left: TermId, right: TermId) {
+    fn push(&mut self, left: TermId, right: TermId, env: &TypeEnv) {
+        eprintln!("+ {:?} = {:?}", env.debug(left), env.debug(right));
         if left == right {
             return;
         }
@@ -70,6 +71,7 @@ pub fn type_of(e: &Exprs, env: &mut TypeEnv, id: ExprId) -> Term {
 
 fn gather_cons(e: &Exprs, env: &mut TypeEnv, id: ExprId, cons: &mut Cons) -> TermId {
     let expr = e.get(id);
+    eprintln!("Gather con: {:?}", expr.debug(e));
     match expr {
         Expr::Bool(_) => env.term_for_expr(id, Term::Mono(Type::Bool)),
         Expr::Var(name) => {
@@ -86,53 +88,51 @@ fn gather_cons(e: &Exprs, env: &mut TypeEnv, id: ExprId, cons: &mut Cons) -> Ter
         Expr::Call(func, arg) => {
             let term_id = gather_cons(e, env, *func, cons);
             let term = env.get_term(term_id).expect("Term");
+            eprintln!("Term of call: {:?}", term.debug(env));
 
             let arg_id = gather_cons(e, env, *arg, cons);
-            let (from, to) = match term {
+            let (from, to) = match term.clone() {
                 Term::Var(_) => {
                     let some_to = env.new_var_as_term();
                     let has_to_be_function = Term::Mono(Type::Function(arg_id, some_to));
                     let has_to_be_function = env.add_term(has_to_be_function);
-                    cons.push(term_id, has_to_be_function);
+                    cons.push(term_id, has_to_be_function, env);
 
                     (arg_id, some_to)
                 }
-                Term::Poly(vars, term) => {
-                    let inner = env.get_term(term).expect("Term");
-                    match inner {
-                        Term::Mono(Type::Function(from, to)) => instantiate(env, vars, from, to),
-                        Term::Poly(_, _) => panic!("Higher order polymorphism is not supported"),
-                        Term::Mono(Type::Bool) | Term::Var(_) => panic!("Expected function"),
-                    }
-                }
+                poly @ Term::Poly(_, _) => instantiate_poly(env, poly, cons),
                 Term::Mono(Type::Function(from, to)) => (from, to),
                 Term::Mono(Type::Bool) => {
-                    panic!("Expected function, found {term:?}")
+                    panic!("Expected function, found {:?}", term.debug(env))
                 }
             };
 
-            cons.push(from, arg_id);
+            cons.push(from, arg_id, env);
+            eprintln!(
+                "We return Call:  {:?} with term {:?}",
+                e.debug(id),
+                env.debug(to)
+            );
             env.term_id_for_expr(id, to)
         }
         Expr::Let(name, value_id, then) => {
             let value = gather_cons(e, env, *value_id, cons);
             let value_type = env.get_term(value).expect("Type");
+            eprintln!("Let value: {:?}", value_type.debug(env));
 
             let value = match value_type {
                 Term::Mono(Type::Function(from, to)) => {
                     let terms = [from, to];
                     let poly_var = terms
                         .into_iter()
-                        .flat_map(|t| env.get_term(t).map(|term| (t, term)))
-                        .filter(|(_term_id, term)| matches!(term, Term::Var(_)))
-                        .map(|(term_id, _)| term_id)
+                        .flat_map(|t| collect_vars(env, t))
                         .collect::<BTreeSet<_>>();
 
                     if !poly_var.is_empty() {
-                        env.term_for_expr(
-                            *value_id,
-                            Term::Poly(poly_var.into_iter().collect(), value),
-                        )
+                        let new_poly = Term::Poly(poly_var.into_iter().collect(), value);
+
+                        eprintln!("NewPoly: {:?}", new_poly.debug(env));
+                        env.term_for_expr(*value_id, new_poly)
                     } else {
                         value
                     }
@@ -147,6 +147,27 @@ fn gather_cons(e: &Exprs, env: &mut TypeEnv, id: ExprId, cons: &mut Cons) -> Ter
             env.term_id_for_expr(id, then)
         }
     }
+}
+
+fn collect_vars(env: &TypeEnv, id: TermId) -> Vec<TermId> {
+    let mut vars: Vec<TermId> = vec![];
+    let mut queue: VecDeque<TermId> = Default::default();
+    queue.push_back(id);
+
+    while let Some(id) = queue.pop_front() {
+        match env.get_term(id).expect("Term") {
+            Term::Mono(Type::Bool) => (),
+            Term::Mono(Type::Function(from, to)) => {
+                queue.push_back(from);
+                queue.push_back(to);
+            }
+            Term::Poly(_, _) => (),
+            Term::Var(_) => {
+                vars.push(id);
+            }
+        }
+    }
+    vars
 }
 
 fn unify(env: &mut TypeEnv, mut root_id: TermId, mut cons: Cons) -> TermId {
@@ -167,16 +188,40 @@ fn unify(env: &mut TypeEnv, mut root_id: TermId, mut cons: Cons) -> TermId {
                 continue;
             }
             (Term::Mono(Type::Function(fr_a, to_a)), Term::Mono(Type::Function(fr_b, to_b))) => {
-                cons.push(fr_a, fr_b);
-                cons.push(to_a, to_b);
+                cons.push(fr_a, fr_b, env);
+                cons.push(to_a, to_b, env);
                 continue;
             }
             (l, r) => {
-                panic!("Does not unify: {l:?} {r:?}")
+                panic!("Does not unify: {:?} {:?}", l.debug(env), r.debug(env))
             }
         }
     }
     root_id
+}
+
+fn instantiate_poly(env: &mut TypeEnv, poly: Term, cons: &mut Cons) -> (TermId, TermId) {
+    match poly.clone() {
+        Term::Poly(vars, poly_term) => {
+            let inner = env.get_term(poly_term).expect("Term");
+            match inner {
+                Term::Mono(Type::Function(from, to)) => {
+                    eprintln!("Instantiate starts...");
+                    let (f, t) = instantiate(env, vars, from, to, cons);
+                    eprintln!(
+                        "Instantiate {:?} into {:?} -> {:?}",
+                        poly.debug(env),
+                        env.debug(f),
+                        env.debug(t)
+                    );
+                    (f, t)
+                }
+                Term::Poly(_, _) => panic!("Higher order polymorphism is not supported"),
+                Term::Mono(Type::Bool) | Term::Var(_) => panic!("Expected function"),
+            }
+        }
+        _ => unreachable!(),
+    }
 }
 
 fn instantiate(
@@ -184,13 +229,26 @@ fn instantiate(
     vars: Vec<TermId>,
     mut from: TermId,
     mut to: TermId,
+    cons: &mut Cons,
 ) -> (TermId, TermId) {
-    for var in vars {
+    let mut new_cons = vec![];
+    for var in vars.into_iter().rev() {
         let new_var = env.new_var();
         let new_var_id = env.add_term(new_var);
-        from = replace(env, from, var, new_var_id);
+        from = replace(env, var, from, new_var_id);
         to = replace(env, var, to, new_var_id);
+
+        for c in cons.cons.iter() {
+            let maybe_new_cons = Con {
+                left: replace(env, var, c.left, new_var_id),
+                right: replace(env, var, c.right, new_var_id),
+            };
+            if c != &maybe_new_cons {
+                new_cons.push(maybe_new_cons);
+            }
+        }
     }
+    cons.cons.extend(new_cons);
     (from, to)
 }
 
@@ -201,10 +259,7 @@ fn replace_all(
     cons: &mut Cons,
     root_id: &mut TermId,
 ) {
-    let mut cons_vec = std::mem::take(&mut cons.cons)
-        .into_iter()
-        .collect::<Vec<_>>();
-    for c in cons_vec.iter_mut() {
+    for c in cons.cons.iter_mut() {
         c.left = replace(env, left, c.left, right);
         c.right = replace(env, left, c.right, right);
     }
@@ -217,11 +272,16 @@ fn replace_all(
     env.exprs = exprs;
 
     *root_id = replace(env, left, *root_id, right);
-
-    cons.cons = cons_vec.into_iter().collect();
 }
 
 fn replace(env: &mut TypeEnv, left: TermId, term_id: TermId, right: TermId) -> TermId {
+    // eprintln!(
+    //     "Replace: {:?} -- {:?} --> {:?}",
+    //     env.debug(left),
+    //     env.debug(term_id),
+    //     env.debug(right)
+    // );
+
     let term = env.get_term(term_id).expect("Term");
     match term {
         Term::Mono(Type::Function(arg, ret)) => {
@@ -335,6 +395,58 @@ impl TypeEnv {
                 let to = self.print_term_id(to);
                 format!("({from} -> {to})")
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    mod instantiate_tests {
+        use super::*;
+
+        #[test]
+        fn ident() {
+            let mut env = TypeEnv::default();
+            let mut cons = Cons::default();
+
+            let t0 = env.new_var_as_term();
+            let source = Term::Poly(vec![t0], env.add_term(Term::Mono(Type::Function(t0, t0))));
+
+            let (a_from, a_to) = instantiate_poly(&mut env, source, &mut cons);
+            let actual = Term::Mono(Type::Function(a_from, a_to));
+
+            let t1 = TermId(2);
+            let expected = Term::Mono(Type::Function(t1, t1));
+
+            assert_eq!(expected.debug(&env), actual.debug(&env));
+        }
+
+        #[test]
+        fn nested() {
+            let mut env = TypeEnv::default();
+            let mut cons = Cons::default();
+            let t0 = env.new_var_as_term();
+            let t1 = env.new_var_as_term();
+
+            let t2 = env.add_term(Term::Mono(Type::Function(t1, t0)));
+            let source = Term::Poly(
+                vec![t0, t1],
+                env.add_term(Term::Mono(Type::Function(t0, t2))),
+            );
+
+            let (a_from, a_to) = instantiate_poly(&mut env, source, &mut cons);
+            let actual = Term::Mono(Type::Function(a_from, a_to));
+
+            let t3 = TermId(4);
+            let t4 = TermId(6);
+            let expected_inner = env.add_term(Term::Mono(Type::Function(t3, t4)));
+            let expected = Term::Mono(Type::Function(t4, expected_inner));
+
+            println!("{:#?}", env);
+
+            assert_eq!(expected.debug(&env), actual.debug(&env));
         }
     }
 }

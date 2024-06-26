@@ -159,8 +159,19 @@ impl<F: BuilderFn> LetLike for Let<F> {
 }
 
 #[cfg(test)]
-mod tests {
+mod builder_tests {
     use super::*;
+
+    macro_rules! assert_e {
+        ($a: expr, $b: expr) => {
+            let (a_root, a_exprs) = $a;
+            let (b_root, b_exprs) = $b;
+            let a_dbg = format!("{:?}", a_exprs.debug(a_root));
+            let b_dbg = format!("{:?}", b_exprs.debug(b_root));
+
+            assert_eq!(a_dbg, b_dbg);
+        };
+    }
 
     #[test]
     fn letn_tests() {
@@ -173,7 +184,7 @@ mod tests {
 
         let b = let_n("a", true).and_let("b", false)._in(false).root();
 
-        assert_eq!(a, b);
+        assert_e!(a, b);
     }
 
     #[test]
@@ -182,7 +193,7 @@ mod tests {
 
         let b = ("a", "b").ret("a").root();
 
-        assert_eq!(a, b);
+        assert_e!(a, b);
     }
 
     #[test]
@@ -191,6 +202,6 @@ mod tests {
 
         let b = calln("a", (true, false)).root();
 
-        assert_eq!(a, b);
+        assert_e!(a, b);
     }
 }
