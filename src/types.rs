@@ -2,6 +2,9 @@ use std::collections::{BTreeSet, HashMap, VecDeque};
 
 use crate::ast::{Expr, ExprId, Exprs};
 
+mod debug;
+pub use debug::*;
+
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum Type {
     Bool,
@@ -11,7 +14,8 @@ pub enum Type {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Term {
     Mono(Type),
-    Poly(Vec<TermId>, TermId), // For All T, U: ...
+    /// For All T, U: ...
+    Poly(Vec<TermId>, TermId),
     Var(usize),
 }
 
@@ -57,18 +61,15 @@ impl Cons {
 pub fn type_of(e: &Exprs, env: &mut TypeEnv, id: ExprId) -> Term {
     let mut cons = Default::default();
     let term_id = gather_cons(e, env, id, &mut cons);
-    // eprintln!("Before unify:");
     // dbg!(&env);
     // eprintln!("Cons: {cons:?}");
     let term_id = unify(env, term_id, cons);
-    // expr_print(e, id, env);
 
     env.get_term(term_id).expect("Term")
 }
 
 fn gather_cons(e: &Exprs, env: &mut TypeEnv, id: ExprId, cons: &mut Cons) -> TermId {
     let expr = e.get(id);
-    // eprintln!("* Gather cons: {id:?} {expr:?}");
     match expr {
         Expr::Bool(_) => env.term_for_expr(id, Term::Mono(Type::Bool)),
         Expr::Var(name) => {
@@ -83,21 +84,15 @@ fn gather_cons(e: &Exprs, env: &mut TypeEnv, id: ExprId, cons: &mut Cons) -> Ter
             env.term_for_expr(id, Term::Mono(Type::Function(var, ret)))
         }
         Expr::Call(func, arg) => {
-            // Func term
             let term_id = gather_cons(e, env, *func, cons);
             let term = env.get_term(term_id).expect("Term");
-            // eprintln!("{id:?} - Call term: {term:?}");
-            // Currently there is no let polymorphism
 
             let arg_id = gather_cons(e, env, *arg, cons);
             let (from, to) = match term {
                 Term::Var(_) => {
-                    // eprintln!("{id:?} - Call term: {term:?} is a variable");
                     let some_to = env.new_var_as_term();
                     let has_to_be_function = Term::Mono(Type::Function(arg_id, some_to));
-                    // eprintln!("{id:?} - term_id {term_id:?} must be fn: {has_to_be_function:?}");
                     let has_to_be_function = env.add_term(has_to_be_function);
-                    // dbg!(&term_id, has_to_be_function);
                     cons.push(term_id, has_to_be_function);
 
                     (arg_id, some_to)
@@ -116,8 +111,6 @@ fn gather_cons(e: &Exprs, env: &mut TypeEnv, id: ExprId, cons: &mut Cons) -> Ter
                 }
             };
 
-            // dbg!(&from, &to);
-            // eprintln!("{id:?} - From must be equal to arg_id");
             cons.push(from, arg_id);
             env.term_id_for_expr(id, to)
         }
@@ -157,11 +150,8 @@ fn gather_cons(e: &Exprs, env: &mut TypeEnv, id: ExprId, cons: &mut Cons) -> Ter
 }
 
 fn unify(env: &mut TypeEnv, mut root_id: TermId, mut cons: Cons) -> TermId {
-    dbg!(&cons);
     while let Some(Con { left, right }) = cons.pop() {
-        // eprint!("{left:?} =? {right:?}  ");
         if left == right {
-            // eprintln!("eq");
             continue;
         }
         let l = env.get_term(left).expect("Term");
@@ -169,24 +159,19 @@ fn unify(env: &mut TypeEnv, mut root_id: TermId, mut cons: Cons) -> TermId {
 
         match (l, r) {
             (Term::Var(_), _r) => {
-                // eprintln!("lvar");
                 replace_all(env, left, right, &mut cons, &mut root_id);
                 continue;
             }
             (_l, Term::Var(_)) => {
-                // eprintln!("rvar");
                 replace_all(env, right, left, &mut cons, &mut root_id);
                 continue;
             }
             (Term::Mono(Type::Function(fr_a, to_a)), Term::Mono(Type::Function(fr_b, to_b))) => {
-                // eprintln!("fun fun: {fr_a:?}->{to_a:?}  =? {fr_b:?}-> {to_b:?}");
                 cons.push(fr_a, fr_b);
                 cons.push(to_a, to_b);
                 continue;
             }
             (l, r) => {
-                // eprintln!("uh oh");
-                // dbg!(&env, &cons);
                 panic!("Does not unify: {l:?} {r:?}")
             }
         }
@@ -200,14 +185,12 @@ fn instantiate(
     mut from: TermId,
     mut to: TermId,
 ) -> (TermId, TermId) {
-    // eprintln!("Instantiate {vars:?} {from:?} -> {to:?}");
     for var in vars {
         let new_var = env.new_var();
         let new_var_id = env.add_term(new_var);
         from = replace(env, from, var, new_var_id);
         to = replace(env, var, to, new_var_id);
     }
-    // eprintln!("Instantiate completed: {from:?} -> {to:?}");
     (from, to)
 }
 
@@ -218,10 +201,6 @@ fn replace_all(
     cons: &mut Cons,
     root_id: &mut TermId,
 ) {
-    // let l_debug = env.get_term(left).unwrap();
-    // let r_debug = env.get_term(right).unwrap();
-    // eprintln!("Replace all {left:?} ({l_debug:?}) with {right:?} ({r_debug:?})");
-
     let mut cons_vec = std::mem::take(&mut cons.cons)
         .into_iter()
         .collect::<Vec<_>>();
@@ -239,13 +218,10 @@ fn replace_all(
 
     *root_id = replace(env, left, *root_id, right);
 
-    // eprintln!("Replace done");
     cons.cons = cons_vec.into_iter().collect();
 }
 
 fn replace(env: &mut TypeEnv, left: TermId, term_id: TermId, right: TermId) -> TermId {
-    // eprintln!("Replace {left:?} with {right:?} (in {term_id:?})");
-
     let term = env.get_term(term_id).expect("Term");
     match term {
         Term::Mono(Type::Function(arg, ret)) => {
@@ -268,12 +244,6 @@ impl TypeEnv {
     fn get_id(&self, name: &'static str) -> Option<TermId> {
         self.vars.iter().rev().find_map(|v| v.get(name)).copied()
     }
-
-    // fn get(&self, name: &'static str) -> Option<Term> {
-    //     let id = self.get_id(name)?;
-
-    //     self.get_term(id)
-    // }
 
     fn get_term(&self, id: TermId) -> Option<Term> {
         self.terms.get(id.0).cloned()
@@ -298,11 +268,6 @@ impl TypeEnv {
     fn term_id_of(&self, id: ExprId) -> Option<TermId> {
         self.exprs.get(&id).cloned()
     }
-
-    // fn term_of(&self, id: ExprId) -> Option<Term> {
-    //     let id = self.term_id_of(id)?;
-    //     self.get_term(id)
-    // }
 
     fn term_id_for_expr(&mut self, id: ExprId, term_id: TermId) -> TermId {
         self.exprs.insert(id, term_id);
@@ -372,73 +337,4 @@ impl TypeEnv {
             }
         }
     }
-}
-
-impl std::fmt::Debug for TermId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "$t{}", self.0)
-    }
-}
-impl std::fmt::Debug for TypeEnv {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln!(f)?;
-        for (e_id, e) in self.exprs.iter() {
-            writeln!(f, "| {e_id:?} | {e:?} |")?;
-        }
-        writeln!(f, "---")?;
-        for (t_id, t) in self.terms.iter().enumerate() {
-            writeln!(f, "| {:?} | {t:?} |", TermId(t_id))?;
-        }
-        Ok(())
-    }
-}
-impl std::fmt::Debug for Con {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?} = {:?}", self.left, self.right)
-    }
-}
-
-pub fn expr_print(exprs: &Exprs, id: ExprId, env: &TypeEnv) {
-    fn expr_print_inner(
-        exprs: &Exprs,
-        id: ExprId,
-        env: &TypeEnv,
-        indent: usize,
-        ignore_indent: bool,
-    ) {
-        let term_id = env.term_id_of(id).expect("Term");
-        let term = env.print_term_id(term_id);
-        let print_indent = |indent, ignore_indent: bool| {
-            if !ignore_indent {
-                print!("{ }", " ".repeat(indent * 4));
-            }
-        };
-        print_indent(indent, ignore_indent);
-        match exprs.get(id) {
-            Expr::Bool(true) => println!("true # {term} \t {term_id:?}"),
-            Expr::Bool(false) => println!("false # {term} \t {term_id:?}"),
-            Expr::Var(name) => println!("{name} # {term} \t {term_id:?}"),
-            Expr::Def(arg, ret) => {
-                println!("fn ({arg}) => # {term} \t {term_id:?}");
-                expr_print_inner(exprs, *ret, env, indent + 1, false);
-            }
-            Expr::Call(f, a) => {
-                expr_print_inner(exprs, *f, env, indent, true);
-                print_indent(indent, false);
-                println!("(");
-                expr_print_inner(exprs, *a, env, indent + 1, false);
-                print_indent(indent, false);
-                println!(") # {term} \t {term_id:?}");
-            }
-            Expr::Let(name, value, then) => {
-                print!("let {name} = ");
-                expr_print_inner(exprs, *value, env, indent, true);
-                print_indent(indent, ignore_indent);
-                println!("in");
-                expr_print_inner(exprs, *then, env, indent + 1, false);
-            }
-        }
-    }
-
-    expr_print_inner(exprs, id, env, 0, false);
 }

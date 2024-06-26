@@ -6,7 +6,7 @@ fn main() {
 mod tests {
     use lambda::ast::builder::*;
     use lambda::runtime::{eval, Value};
-    use lambda::types::{Term, Type};
+    use lambda::types::{expr_print, Term, Type};
 
     struct Test {
         exprs: lambda::ast::Exprs,
@@ -33,6 +33,10 @@ mod tests {
     }
     impl<B: BuilderFn> TestExt for B {}
     impl Test {
+        fn eval(&mut self) -> &mut Self {
+            eval(&self.exprs, &mut self.rt, self.root);
+            self
+        }
         fn assert_eval(&mut self, expected: Value) -> &mut Self {
             let ret = eval(&self.exprs, &mut self.rt, self.root);
             assert_eq!(expected, ret);
@@ -43,12 +47,21 @@ mod tests {
             self
         }
         fn assert_print_term(&mut self, expected: &str) -> &mut Self {
-            assert_eq!(expected, self.types.print_term(self.term.clone()));
+            assert_eq!(expected.trim(), self.types.print_term(self.term.clone()));
             self
         }
         fn assert_print_eval(&mut self, expected: &str) -> &mut Self {
             let ret = eval(&self.exprs, &mut self.rt, self.root);
             assert_eq!(expected, ret.to_string());
+            self
+        }
+        fn dbg_env(&mut self) -> &mut Self {
+            dbg!(&self.types);
+            self
+        }
+
+        fn dbg_tree(&mut self) -> &mut Self {
+            expr_print(&self.exprs, self.root, &self.types);
             self
         }
     }
@@ -142,5 +155,35 @@ mod tests {
         .test()
         .assert_print_term("Bool")
         .assert_print_eval("true");
+    }
+
+    #[test]
+    #[should_panic(expected = "Expected function, found Mono(Bool)")]
+    fn calling_bool() {
+        true.call(false).test();
+    }
+
+    #[test]
+    fn calling_bool_in_fn() {
+        _let(
+            "call",
+            ("x", "y").ret("x".call("y")),
+            "call".call_n((true, false)),
+        )
+        .test()
+        .dbg_env()
+        .dbg_tree()
+        .eval();
+    }
+
+    #[test]
+    fn poly_2() {
+        _let("f", ("a", "b").ret("b"), "f")
+            .test()
+            .assert_print_term(
+                "
+               ForAll (T0, T1): (T0 -> (T1 -> T1))     
+            ",
+            );
     }
 }
