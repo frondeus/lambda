@@ -35,6 +35,10 @@ impl RunEnv {
         inner
     }
 }
+
+/// Runtime does not have any error handling, it always panics,
+/// because these are unrecoverable and unexpected errors.
+/// The whole point of having type system is to prevent those from occurring
 pub fn eval(e: &Exprs, env: &mut RunEnv, id: ExprId) -> Value {
     match e.get(id) {
         Expr::Bool(b) => Value::Bool(*b),

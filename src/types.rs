@@ -1,4 +1,5 @@
 use std::collections::{BTreeSet, HashMap, VecDeque};
+use thiserror::Error;
 
 use crate::ast::{Expr, ExprId, Exprs};
 
@@ -59,20 +60,28 @@ impl Cons {
     }
 }
 
-pub fn type_of(e: &Exprs, env: &mut TypeEnv, id: ExprId) -> Term {
-    let mut cons = Default::default();
-    let term_id = gather_cons(e, env, id, &mut cons);
-    // dbg!(&env);
-    // eprintln!("Cons: {cons:?}");
-    let term_id = unify(env, term_id, cons);
-
-    env.get_term(term_id).expect("Term")
+#[derive(Debug, Error)]
+pub enum TypeError {
+    #[error("Could not unify {left} != {right}")]
+    UnifyError { left: String, right: String },
 }
 
-fn gather_cons(e: &Exprs, env: &mut TypeEnv, id: ExprId, cons: &mut Cons) -> TermId {
+pub type Result<T, E = TypeError> = std::result::Result<T, E>;
+
+pub fn type_of(e: &Exprs, env: &mut TypeEnv, id: ExprId) -> Result<Term> {
+    let mut cons = Default::default();
+    let term_id = gather_cons(e, env, id, &mut cons)?;
+    // dbg!(&env);
+    // eprintln!("Cons: {cons:?}");
+    let term_id = unify(env, term_id, cons)?;
+
+    Ok(env.get_term(term_id).expect("Term"))
+}
+
+fn gather_cons(e: &Exprs, env: &mut TypeEnv, id: ExprId, cons: &mut Cons) -> Result<TermId> {
     let expr = e.get(id);
     eprintln!("Gather con: {:?}", expr.debug(e));
-    match expr {
+    Ok(match expr {
         Expr::Bool(_) => env.term_for_expr(id, Term::Mono(Type::Bool)),
         Expr::Var(name) => {
             let term_id = env.get_id(name).expect("Undefined var");
@@ -81,16 +90,16 @@ fn gather_cons(e: &Exprs, env: &mut TypeEnv, id: ExprId, cons: &mut Cons) -> Ter
         Expr::Def(name, body) => {
             let var = env.new_var();
             let var = env.push(name, var);
-            let ret = gather_cons(e, env, *body, cons);
+            let ret = gather_cons(e, env, *body, cons)?;
             env.pop();
             env.term_for_expr(id, Term::Mono(Type::Function(var, ret)))
         }
         Expr::Call(func, arg) => {
-            let term_id = gather_cons(e, env, *func, cons);
+            let term_id = gather_cons(e, env, *func, cons)?;
             let term = env.get_term(term_id).expect("Term");
             eprintln!("Term of call: {:?}", term.debug(env));
 
-            let arg_id = gather_cons(e, env, *arg, cons);
+            let arg_id = gather_cons(e, env, *arg, cons)?;
             let (from, to) = match term.clone() {
                 Term::Var(_) => {
                     let some_to = env.new_var_as_term();
@@ -103,7 +112,10 @@ fn gather_cons(e: &Exprs, env: &mut TypeEnv, id: ExprId, cons: &mut Cons) -> Ter
                 poly @ Term::Poly(_, _) => instantiate_poly(env, poly, cons),
                 Term::Mono(Type::Function(from, to)) => (from, to),
                 Term::Mono(Type::Bool) => {
-                    panic!("Expected function, found {:?}", term.debug(env))
+                    return Err(TypeError::UnifyError {
+                        left: "Fn(?, ?)".to_string(),
+                        right: format!("{:?}", term.debug(env)),
+                    });
                 }
             };
 
@@ -116,7 +128,7 @@ fn gather_cons(e: &Exprs, env: &mut TypeEnv, id: ExprId, cons: &mut Cons) -> Ter
             env.term_id_for_expr(id, to)
         }
         Expr::Let(name, value_id, then) => {
-            let value = gather_cons(e, env, *value_id, cons);
+            let value = gather_cons(e, env, *value_id, cons)?;
             let value_type = env.get_term(value).expect("Type");
             eprintln!("Let value: {:?}", value_type.debug(env));
 
@@ -142,11 +154,11 @@ fn gather_cons(e: &Exprs, env: &mut TypeEnv, id: ExprId, cons: &mut Cons) -> Ter
 
             env.push_id(name, value);
 
-            let then = gather_cons(e, env, *then, cons);
+            let then = gather_cons(e, env, *then, cons)?;
             env.pop();
             env.term_id_for_expr(id, then)
         }
-    }
+    })
 }
 
 fn collect_vars(env: &TypeEnv, id: TermId) -> Vec<TermId> {
@@ -170,7 +182,7 @@ fn collect_vars(env: &TypeEnv, id: TermId) -> Vec<TermId> {
     vars
 }
 
-fn unify(env: &mut TypeEnv, mut root_id: TermId, mut cons: Cons) -> TermId {
+fn unify(env: &mut TypeEnv, mut root_id: TermId, mut cons: Cons) -> Result<TermId> {
     while let Some(Con { left, right }) = cons.pop() {
         if left == right {
             continue;
@@ -193,11 +205,14 @@ fn unify(env: &mut TypeEnv, mut root_id: TermId, mut cons: Cons) -> TermId {
                 continue;
             }
             (l, r) => {
-                panic!("Does not unify: {:?} {:?}", l.debug(env), r.debug(env))
+                return Err(TypeError::UnifyError {
+                    left: format!("{:?}", l.debug(env)),
+                    right: format!("{:?}", r.debug(env)),
+                })
             }
         }
     }
-    root_id
+    Ok(root_id)
 }
 
 fn instantiate_poly(env: &mut TypeEnv, poly: Term, cons: &mut Cons) -> (TermId, TermId) {
