@@ -70,6 +70,9 @@ pub enum TypeError {
 
     #[error("Use of uninitialized value: {name}")]
     Uninitialized { name: &'static str },
+
+    #[error("Infinite type is not allowed")]
+    InfiniteType,
 }
 
 pub type Result<T, E = TypeError> = std::result::Result<T, E>;
@@ -103,17 +106,17 @@ fn gather_cons(e: &Exprs, env: &mut TypeEnv, id: ExprId, cons: &mut Cons) -> Res
             env.term_for_expr(id, Term::Mono(Type::Function(var, ret)))
         }
         Expr::Call(func, arg) => {
-            let term_id = gather_cons(e, env, *func, cons)?;
-            let term = env.get_term(term_id).expect("Term");
-            eprintln!("Term of call: {:?}", term.debug(env));
+            let func_term_id = gather_cons(e, env, *func, cons)?;
+            let func_term = env.get_term(func_term_id).expect("Term");
+            eprintln!("Function to call: {:?}", func_term.debug(env));
 
             let arg_id = gather_cons(e, env, *arg, cons)?;
-            let (from, to) = match term.clone() {
+            let (from, to) = match func_term.clone() {
                 Term::Var(_) => {
                     let some_to = env.new_var_as_term();
                     let has_to_be_function = Term::Mono(Type::Function(arg_id, some_to));
                     let has_to_be_function = env.add_term(has_to_be_function);
-                    cons.push(term_id, has_to_be_function, env);
+                    cons.push(func_term_id, has_to_be_function, env);
 
                     (arg_id, some_to)
                 }
@@ -122,7 +125,7 @@ fn gather_cons(e: &Exprs, env: &mut TypeEnv, id: ExprId, cons: &mut Cons) -> Res
                 Term::Mono(Type::Bool) => {
                     return Err(TypeError::UnifyError {
                         left: "Fn(?, ?)".to_string(),
-                        right: format!("{:?}", term.debug(env)),
+                        right: format!("{:?}", func_term.debug(env)),
                     });
                 }
             };
@@ -203,11 +206,11 @@ fn unify(env: &mut TypeEnv, mut root_id: TermId, mut cons: Cons) -> Result<TermI
 
         match (l, r) {
             (Term::Var(_), _r) => {
-                replace_all(env, left, right, &mut cons, &mut root_id);
+                replace_all(env, left, right, &mut cons, &mut root_id)?;
                 continue;
             }
             (_l, Term::Var(_)) => {
-                replace_all(env, right, left, &mut cons, &mut root_id);
+                replace_all(env, right, left, &mut cons, &mut root_id)?;
                 continue;
             }
             (Term::Mono(Type::Function(fr_a, to_a)), Term::Mono(Type::Function(fr_b, to_b))) => {
@@ -284,7 +287,11 @@ fn replace_all(
     right: TermId,
     cons: &mut Cons,
     root_id: &mut TermId,
-) {
+) -> Result<()> {
+    if occurs(env, left, right) {
+        return Err(TypeError::InfiniteType);
+    }
+
     for c in cons.cons.iter_mut() {
         c.left = replace(env, left, c.left, right);
         c.right = replace(env, left, c.right, right);
@@ -298,6 +305,22 @@ fn replace_all(
     env.exprs = exprs;
 
     *root_id = replace(env, left, *root_id, right);
+    Ok(())
+}
+
+fn occurs(env: &mut TypeEnv, term: TermId, inside: TermId) -> bool {
+    if inside == term {
+        return true;
+    }
+    let inside = env.get_term(inside).expect("Term");
+    match inside {
+        Term::Mono(Type::Bool) => false,
+        Term::Mono(Type::Function(arg, ret)) => occurs(env, term, arg) || occurs(env, term, ret),
+        Term::Poly(vars, inside) => {
+            vars.iter().any(|v| occurs(env, term, *v)) || occurs(env, term, inside)
+        }
+        Term::Var(_) => false,
+    }
 }
 
 fn replace(env: &mut TypeEnv, left: TermId, term_id: TermId, right: TermId) -> TermId {

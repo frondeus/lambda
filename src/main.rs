@@ -154,7 +154,15 @@ mod tests {
         _let("x", "x", "x")
             .test()
             .dbg_term()
-            .assert_error("Use of uninitialized value: x")
-            .eval();
+            .assert_error("Use of uninitialized value: x");
+    }
+
+    #[test]
+    fn infinite_type() {
+        "a".ret("a".call("a"))
+            .test()
+            .dbg_env()
+            .dbg_term()
+            .assert_error("Infinite type is not allowed");
     }
 }
