@@ -140,4 +140,21 @@ mod tests {
             .dbg_term()
             .assert_error("Could not unify Fn(?, ?) != Bool");
     }
+
+    #[test]
+    fn infinite_recursion() {
+        _let("x", "a".ret("x"), "x".call("x"))
+            .test()
+            .dbg_term()
+            .eval();
+    }
+
+    #[test]
+    fn infinite_let() {
+        _let("x", "x", "x")
+            .test()
+            .dbg_term()
+            .assert_error("Use of uninitialized value: x")
+            .eval();
+    }
 }

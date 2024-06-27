@@ -1,3 +1,4 @@
+pub mod arbitrary;
 pub mod builder;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]

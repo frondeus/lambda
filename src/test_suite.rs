@@ -38,7 +38,7 @@ impl Test {
             .term
             .as_ref()
             .map(|t| t.debug(&self.types))
-            .expect_err("Expected type error");
+            .expect_err("Expected type error, but found type");
         assert_eq!(expected.trim(), format!("{term}"));
         self
     }

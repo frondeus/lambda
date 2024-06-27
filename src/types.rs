@@ -25,7 +25,7 @@ pub struct TermId(usize);
 
 #[derive(Default)]
 pub struct TypeEnv {
-    vars: Vec<HashMap<&'static str, TermId>>,
+    vars: Vec<HashMap<&'static str, Option<TermId>>>,
     exprs: HashMap<ExprId, TermId>,
     terms: Vec<Term>,
     var_counter: usize,
@@ -64,6 +64,12 @@ impl Cons {
 pub enum TypeError {
     #[error("Could not unify {left} != {right}")]
     UnifyError { left: String, right: String },
+
+    #[error("Variable `{name}` is not defined anywhere")]
+    UndefinedVariable { name: &'static str },
+
+    #[error("Use of uninitialized value: {name}")]
+    Uninitialized { name: &'static str },
 }
 
 pub type Result<T, E = TypeError> = std::result::Result<T, E>;
@@ -84,7 +90,9 @@ fn gather_cons(e: &Exprs, env: &mut TypeEnv, id: ExprId, cons: &mut Cons) -> Res
     Ok(match expr {
         Expr::Bool(_) => env.term_for_expr(id, Term::Mono(Type::Bool)),
         Expr::Var(name) => {
-            let term_id = env.get_id(name).expect("Undefined var");
+            let term_id = env
+                .get_id(name)?
+                .ok_or(TypeError::UndefinedVariable { name })?;
             env.term_id_for_expr(id, term_id)
         }
         Expr::Def(name, body) => {
@@ -128,7 +136,10 @@ fn gather_cons(e: &Exprs, env: &mut TypeEnv, id: ExprId, cons: &mut Cons) -> Res
             env.term_id_for_expr(id, to)
         }
         Expr::Let(name, value_id, then) => {
+            env.push_none(name);
+
             let value = gather_cons(e, env, *value_id, cons)?;
+
             let value_type = env.get_term(value).expect("Type");
             eprintln!("Let value: {:?}", value_type.debug(env));
 
@@ -152,7 +163,7 @@ fn gather_cons(e: &Exprs, env: &mut TypeEnv, id: ExprId, cons: &mut Cons) -> Res
                 _ => value,
             };
 
-            env.push_id(name, value);
+            env.replace_with_some(name, value);
 
             let then = gather_cons(e, env, *then, cons)?;
             env.pop();
@@ -316,8 +327,21 @@ fn replace(env: &mut TypeEnv, left: TermId, term_id: TermId, right: TermId) -> T
 }
 
 impl TypeEnv {
-    fn get_id(&self, name: &'static str) -> Option<TermId> {
-        self.vars.iter().rev().find_map(|v| v.get(name)).copied()
+    fn get_id(&self, name: &'static str) -> Result<Option<TermId>> {
+        let mut iter = self.vars.iter().rev();
+
+        if let Some(last) = iter.next() {
+            match last.get(name) {
+                Some(None) => {
+                    return Err(TypeError::Uninitialized { name });
+                }
+
+                Some(Some(val)) => return Ok(Some(*val)),
+                None => (),
+            }
+        }
+
+        Ok(iter.find_map(|v| v.get(name).and_then(|t| *t)))
     }
 
     fn get_term(&self, id: TermId) -> Option<Term> {
@@ -361,8 +385,21 @@ impl TypeEnv {
     fn push_id(&mut self, name: &'static str, term_id: TermId) -> TermId {
         let mut vars = HashMap::new();
 
-        vars.insert(name, term_id);
+        vars.insert(name, Some(term_id));
         self.vars.push(vars);
+        term_id
+    }
+
+    fn push_none(&mut self, name: &'static str) {
+        let mut vars = HashMap::new();
+
+        vars.insert(name, None);
+        self.vars.push(vars);
+    }
+
+    fn replace_with_some(&mut self, name: &'static str, term_id: TermId) -> TermId {
+        let latest = self.vars.last_mut().expect("Last scope");
+        latest.insert(name, Some(term_id)).expect("There was None");
         term_id
     }
 
