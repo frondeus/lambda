@@ -1,6 +1,9 @@
 use arbitrary::{Arbitrary, Result, Unstructured};
 
-use super::{Expr, ExprId, Exprs};
+use super::{
+    builder::{var, BuilderFn},
+    Expr, ExprId, Exprs,
+};
 
 const NAMES: &[&str] = &["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k"];
 
@@ -13,10 +16,11 @@ fn arbitrary_expr(e: &mut Exprs, u: &mut Unstructured) -> Result<Expr> {
     let kind = u.arbitrary::<ExprKind>()?;
     Ok(match kind {
         ExprKind::Bool => Expr::Bool(u.arbitrary()?),
-        ExprKind::Var => Expr::Var(u.choose(NAMES)?),
+        ExprKind::Var => var(u.choose(NAMES)?).build(e),
         ExprKind::Def => {
             let ret = arbitrary_expr_id(e, u)?;
-            Expr::Def(u.choose(NAMES)?, ret)
+            let name = e.push_str(u.choose(NAMES)?);
+            Expr::Def(name, ret)
         }
         ExprKind::Call => {
             let func = arbitrary_expr_id(e, u)?;
@@ -24,7 +28,7 @@ fn arbitrary_expr(e: &mut Exprs, u: &mut Unstructured) -> Result<Expr> {
             Expr::Call(func, arg)
         }
         ExprKind::Let => {
-            let name = u.choose(NAMES)?;
+            let name = e.push_str(u.choose(NAMES)?);
             let value = arbitrary_expr_id(e, u)?;
             let then = arbitrary_expr_id(e, u)?;
             Expr::Let(name, value, then)

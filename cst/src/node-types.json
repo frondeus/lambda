@@ -1,0 +1,297 @@
+[
+  {
+    "type": "call",
+    "named": true,
+    "fields": {
+      "arg": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": "(",
+            "named": false
+          },
+          {
+            "type": ")",
+            "named": false
+          },
+          {
+            "type": "call",
+            "named": true
+          },
+          {
+            "type": "def",
+            "named": true
+          },
+          {
+            "type": "false",
+            "named": false
+          },
+          {
+            "type": "ident",
+            "named": true
+          },
+          {
+            "type": "let",
+            "named": true
+          },
+          {
+            "type": "true",
+            "named": false
+          }
+        ]
+      },
+      "func": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": "(",
+            "named": false
+          },
+          {
+            "type": ")",
+            "named": false
+          },
+          {
+            "type": "call",
+            "named": true
+          },
+          {
+            "type": "def",
+            "named": true
+          },
+          {
+            "type": "false",
+            "named": false
+          },
+          {
+            "type": "ident",
+            "named": true
+          },
+          {
+            "type": "let",
+            "named": true
+          },
+          {
+            "type": "true",
+            "named": false
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "def",
+    "named": true,
+    "fields": {
+      "arg": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "ident",
+            "named": true
+          }
+        ]
+      },
+      "body": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": "(",
+            "named": false
+          },
+          {
+            "type": ")",
+            "named": false
+          },
+          {
+            "type": "call",
+            "named": true
+          },
+          {
+            "type": "def",
+            "named": true
+          },
+          {
+            "type": "false",
+            "named": false
+          },
+          {
+            "type": "ident",
+            "named": true
+          },
+          {
+            "type": "let",
+            "named": true
+          },
+          {
+            "type": "true",
+            "named": false
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "let",
+    "named": true,
+    "fields": {
+      "in": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": "(",
+            "named": false
+          },
+          {
+            "type": ")",
+            "named": false
+          },
+          {
+            "type": "call",
+            "named": true
+          },
+          {
+            "type": "def",
+            "named": true
+          },
+          {
+            "type": "false",
+            "named": false
+          },
+          {
+            "type": "ident",
+            "named": true
+          },
+          {
+            "type": "let",
+            "named": true
+          },
+          {
+            "type": "true",
+            "named": false
+          }
+        ]
+      },
+      "key": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "ident",
+            "named": true
+          }
+        ]
+      },
+      "value": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": "(",
+            "named": false
+          },
+          {
+            "type": ")",
+            "named": false
+          },
+          {
+            "type": "call",
+            "named": true
+          },
+          {
+            "type": "def",
+            "named": true
+          },
+          {
+            "type": "false",
+            "named": false
+          },
+          {
+            "type": "ident",
+            "named": true
+          },
+          {
+            "type": "let",
+            "named": true
+          },
+          {
+            "type": "true",
+            "named": false
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "source_file",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": false,
+      "required": false,
+      "types": [
+        {
+          "type": "call",
+          "named": true
+        },
+        {
+          "type": "def",
+          "named": true
+        },
+        {
+          "type": "ident",
+          "named": true
+        },
+        {
+          "type": "let",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "(",
+    "named": false
+  },
+  {
+    "type": ")",
+    "named": false
+  },
+  {
+    "type": ":",
+    "named": false
+  },
+  {
+    "type": ";",
+    "named": false
+  },
+  {
+    "type": "=",
+    "named": false
+  },
+  {
+    "type": "comment",
+    "named": true
+  },
+  {
+    "type": "false",
+    "named": false
+  },
+  {
+    "type": "ident",
+    "named": true
+  },
+  {
+    "type": "let",
+    "named": false
+  },
+  {
+    "type": "true",
+    "named": false
+  }
+]

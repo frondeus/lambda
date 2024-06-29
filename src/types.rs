@@ -1,7 +1,7 @@
 use std::collections::{BTreeSet, HashMap, VecDeque};
 use thiserror::Error;
 
-use crate::ast::{Expr, ExprId, Exprs};
+use crate::ast::{Expr, ExprId, Exprs, InternId};
 
 mod debug;
 pub use debug::*;
@@ -20,7 +20,7 @@ pub struct TypeId(usize);
 
 #[derive(Default)]
 pub struct TypeEnv {
-    vars: Vec<HashMap<&'static str, Option<TypeId>>>,
+    vars: Vec<HashMap<InternId, Option<TypeId>>>,
     exprs: HashMap<ExprId, TypeId>,
     types: Vec<Type>,
     var_counter: usize,
@@ -62,10 +62,10 @@ pub enum TypeError {
     UnifyError { left: String, right: String },
 
     #[error("Variable `{name}` is not defined anywhere")]
-    UndefinedVariable { name: &'static str },
+    UndefinedVariable { name: String },
 
     #[error("Use of uninitialized value: {name}")]
-    Uninitialized { name: &'static str },
+    Uninitialized { name: String },
 
     #[error("Infinite type is not allowed")]
     InfiniteType,
@@ -87,13 +87,15 @@ fn gather_cons(e: &Exprs, env: &mut TypeEnv, id: ExprId) -> Result<TypeId> {
         Expr::Bool(_) => env.set_type_for_expr(id, Type::Bool),
         Expr::Var(name) => {
             let type_id = env
-                .get_vars_type_id(name)?
-                .ok_or(TypeError::UndefinedVariable { name })?;
+                .get_vars_type_id(e, *name)?
+                .ok_or(TypeError::UndefinedVariable {
+                    name: e.get_str(*name).into(),
+                })?;
             env.set_type_id_for_expr(id, type_id)
         }
         Expr::Def(name, body) => {
             let var = env.new_var();
-            let var = env.push_scope(name, var);
+            let var = env.push_scope(*name, var);
             let ret = gather_cons(e, env, *body)?;
             env.pop_scope();
             env.set_type_for_expr(id, Type::Function(var, ret))
@@ -126,7 +128,7 @@ fn gather_cons(e: &Exprs, env: &mut TypeEnv, id: ExprId) -> Result<TypeId> {
             env.set_type_id_for_expr(id, to)
         }
         Expr::Let(name, value_id, then) => {
-            env.push_uninitialized_scope(name);
+            env.push_uninitialized_scope(*name);
 
             let value = gather_cons(e, env, *value_id)?;
             let value_type = env.get_type(value).expect("Type");
@@ -149,7 +151,7 @@ fn gather_cons(e: &Exprs, env: &mut TypeEnv, id: ExprId) -> Result<TypeId> {
                 _ => value,
             };
 
-            env.replace_with_some(name, value);
+            env.replace_with_some(*name, value);
 
             let then = gather_cons(e, env, *then)?;
             env.pop_scope();
@@ -330,13 +332,15 @@ fn replace(env: &mut TypeEnv, all_occurrences: TypeId, inside: TypeId, with: Typ
 }
 
 impl TypeEnv {
-    fn get_vars_type_id(&self, name: &'static str) -> Result<Option<TypeId>> {
+    fn get_vars_type_id(&self, e: &Exprs, name: InternId) -> Result<Option<TypeId>> {
         let mut iter = self.vars.iter().rev();
 
         if let Some(last) = iter.next() {
-            match last.get(name) {
+            match last.get(&name) {
                 Some(None) => {
-                    return Err(TypeError::Uninitialized { name });
+                    return Err(TypeError::Uninitialized {
+                        name: e.get_str(name).into(),
+                    });
                 }
 
                 Some(Some(val)) => return Ok(Some(*val)),
@@ -344,7 +348,7 @@ impl TypeEnv {
             }
         }
 
-        Ok(iter.find_map(|v| v.get(name).and_then(|t| *t)))
+        Ok(iter.find_map(|v| v.get(&name).and_then(|t| *t)))
     }
 
     fn get_type(&self, id: TypeId) -> Option<Type> {
@@ -376,12 +380,12 @@ impl TypeEnv {
         self.set_type_id_for_expr(id, type_id)
     }
 
-    fn push_scope(&mut self, name: &'static str, value: Type) -> TypeId {
+    fn push_scope(&mut self, name: InternId, value: Type) -> TypeId {
         let type_id = self.add_type(value);
         self.push_scope_with_id(name, type_id)
     }
 
-    fn push_scope_with_id(&mut self, name: &'static str, type_id: TypeId) -> TypeId {
+    fn push_scope_with_id(&mut self, name: InternId, type_id: TypeId) -> TypeId {
         let mut vars = HashMap::new();
 
         vars.insert(name, Some(type_id));
@@ -389,14 +393,14 @@ impl TypeEnv {
         type_id
     }
 
-    fn push_uninitialized_scope(&mut self, name: &'static str) {
+    fn push_uninitialized_scope(&mut self, name: InternId) {
         let mut vars = HashMap::new();
 
         vars.insert(name, None);
         self.vars.push(vars);
     }
 
-    fn replace_with_some(&mut self, name: &'static str, type_id: TypeId) -> TypeId {
+    fn replace_with_some(&mut self, name: InternId, type_id: TypeId) -> TypeId {
         let latest = self.vars.last_mut().expect("Last scope");
         latest.insert(name, Some(type_id)).expect("There was None");
         type_id

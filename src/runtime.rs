@@ -1,11 +1,12 @@
 use std::{cell::RefCell, fmt::Display, mem::MaybeUninit, rc::Rc};
 
-use crate::ast::{Expr, ExprId, Exprs};
+use crate::ast::{Expr, ExprId, Exprs, InternId};
 
 #[derive(Clone, Debug)]
 pub enum Value {
     Bool(bool),
-    Fn(&'static str, ExprId, RunEnv),
+    // Keeping string only for displaying
+    Fn(String, InternId, ExprId, RunEnv),
 }
 
 impl PartialEq for Value {
@@ -21,7 +22,7 @@ impl Display for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Value::Bool(b) => write!(f, "{b}"),
-            Value::Fn(arg, _ret, _) => write!(f, "fn {arg}."),
+            Value::Fn(arg, _, _ret, _) => write!(f, "fn {arg}."),
         }
     }
 }
@@ -33,13 +34,13 @@ pub struct RunEnv {
 /// Our scope stores only one variable
 #[derive(Debug)]
 struct Scope {
-    name: &'static str,
+    name: InternId,
     value: RefCell<MaybeUninit<Value>>,
     parent: Option<Rc<Scope>>,
 }
 
 impl RunEnv {
-    fn get(&self, name: &'static str) -> Option<Value> {
+    fn get(&self, name: InternId) -> Option<Value> {
         std::iter::successors(self.scope.clone(), |scope| scope.parent.clone()).find_map(|scope| {
             let Scope {
                 name: scoped_name,
@@ -56,7 +57,7 @@ impl RunEnv {
         })
     }
 
-    fn push_uninit(&self, name: &'static str) -> Self {
+    fn push_uninit(&self, name: InternId) -> Self {
         Self {
             scope: Some(Rc::new(Scope {
                 name,
@@ -66,7 +67,7 @@ impl RunEnv {
         }
     }
 
-    fn push(&self, name: &'static str, value: Value) -> Self {
+    fn push(&self, name: InternId, value: Value) -> Self {
         Self {
             scope: Some(Rc::new(Scope {
                 name,
@@ -83,10 +84,10 @@ impl RunEnv {
 pub fn eval(e: &Exprs, env: &mut RunEnv, id: ExprId) -> Value {
     match e.get(id) {
         Expr::Bool(b) => Value::Bool(*b),
-        Expr::Var(v) => env.get(v).expect("Var not found"),
-        Expr::Def(name, body) => Value::Fn(name, *body, env.clone()),
+        Expr::Var(v) => env.get(*v).expect("Var not found"),
+        Expr::Def(name, body) => Value::Fn(e.get_str(*name).into(), *name, *body, env.clone()),
         Expr::Call(f, arg) => match eval(e, env, *f) {
-            Value::Fn(name, body, captured_scope) => {
+            Value::Fn(_name, name, body, captured_scope) => {
                 let arg = eval(e, env, *arg);
                 let mut inner = captured_scope.push(name, arg);
                 eval(e, &mut inner, body)
@@ -94,7 +95,7 @@ pub fn eval(e: &Exprs, env: &mut RunEnv, id: ExprId) -> Value {
             _ => panic!("Expected function"),
         },
         Expr::Let(name, value, body) => {
-            let mut inner = env.push_uninit(name);
+            let mut inner = env.push_uninit(*name);
             let value = eval(e, &mut inner, *value);
             inner
                 .scope

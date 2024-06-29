@@ -33,20 +33,23 @@ pub fn atom(ex: Expr) -> impl BuilderFn {
     |_e: &mut Exprs| ex
 }
 
-pub fn var(name: &'static str) -> impl BuilderFn {
-    atom(Expr::Var(name))
+pub fn var(name: &str) -> impl BuilderFn {
+    let name = name.to_string();
+    move |e: &mut Exprs| Expr::Var(e.push_str(name))
 }
 
 pub fn boolean(b: bool) -> impl BuilderFn {
     atom(Expr::Bool(b))
 }
 
-pub fn def(arg: &'static str, ret: impl BuilderFn) -> impl BuilderFn {
-    move |e: &mut Exprs| Expr::Def(arg, ret.dependency(e))
+pub fn def(arg: &str, ret: impl BuilderFn) -> impl BuilderFn {
+    let arg = arg.to_string();
+    move |e: &mut Exprs| Expr::Def(e.push_str(arg), ret.dependency(e))
 }
 
-pub fn _let(name: &'static str, value: impl BuilderFn, then: impl BuilderFn) -> impl BuilderFn {
-    move |e: &mut Exprs| Expr::Let(name, value.dependency(e), then.dependency(e))
+pub fn _let(name: &str, value: impl BuilderFn, then: impl BuilderFn) -> impl BuilderFn {
+    let name = name.to_string();
+    move |e: &mut Exprs| Expr::Let(e.push_str(name), value.dependency(e), then.dependency(e))
 }
 
 pub fn call(fun: impl BuilderFn, arg: impl BuilderFn) -> impl BuilderFn {
@@ -60,9 +63,9 @@ impl BuilderFn for bool {
     }
 }
 
-impl BuilderFn for &'static str {
-    fn build(self, _: &mut Exprs) -> Expr {
-        Expr::Var(self)
+impl BuilderFn for &str {
+    fn build(self, e: &mut Exprs) -> Expr {
+        var(self).build(e)
     }
 }
 
