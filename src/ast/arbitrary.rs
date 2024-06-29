@@ -55,8 +55,8 @@ mod tests {
             let mut types = TypeEnv::default();
             let mut rt = RunEnv::default();
 
-            let term = crate::types::type_of(&exprs, &mut types, root);
-            if term.is_ok() {
+            let ty = crate::types::type_of(&exprs, &mut types, root);
+            if ty.is_ok() {
                 crate::runtime::eval(&exprs, &mut rt, root);
             }
             Ok(())

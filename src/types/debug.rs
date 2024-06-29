@@ -1,10 +1,10 @@
 use crate::ast::{DebugExpr, Exprs};
 
-use super::{Con, Term, TermId, Type, TypeEnv};
+use super::{Con, Type, TypeEnv, TypeId};
 
 impl TypeEnv {
-    pub fn debug(&self, id: TermId) -> DebugTerm {
-        let t = &self.terms[id.0];
+    pub fn debug(&self, id: TypeId) -> DebugType {
+        let t = &self.types[id.0];
         t.debug(self)
     }
 }
@@ -13,31 +13,15 @@ pub struct DebugType<'a> {
     env: &'a TypeEnv,
     t: &'a Type,
 }
-
 impl<'a> PartialEq for DebugType<'a> {
     fn eq(&self, other: &Self) -> bool {
         self.t.eq(other.t)
     }
 }
+
 impl Type {
     pub fn debug<'a>(&'a self, env: &'a TypeEnv) -> DebugType<'a> {
         DebugType { env, t: self }
-    }
-}
-
-pub struct DebugTerm<'a> {
-    env: &'a TypeEnv,
-    t: &'a Term,
-}
-impl<'a> PartialEq for DebugTerm<'a> {
-    fn eq(&self, other: &Self) -> bool {
-        self.t.eq(other.t)
-    }
-}
-
-impl Term {
-    pub fn debug<'a>(&'a self, env: &'a TypeEnv) -> DebugTerm<'a> {
-        DebugTerm { env, t: self }
     }
 }
 
@@ -50,15 +34,7 @@ impl<'a> std::fmt::Debug for DebugType<'a> {
                 .field(&self.env.debug(*from))
                 .field(&self.env.debug(*to))
                 .finish(),
-        }
-    }
-}
-
-impl<'a> std::fmt::Debug for DebugTerm<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self.t {
-            Term::Mono(ty) => ty.debug(self.env).fmt(f),
-            Term::ForAll(args, inner) => {
+            Type::ForAll(args, inner) => {
                 let args = args
                     .iter()
                     .copied()
@@ -67,12 +43,12 @@ impl<'a> std::fmt::Debug for DebugTerm<'a> {
                 let inner = self.env.debug(*inner);
                 f.debug_tuple("Poly").field(&args).field(&inner).finish()
             }
-            Term::Var(i) => write!(f, "T{i}"),
+            Type::Var(i) => write!(f, "T{i}"),
         }
     }
 }
 
-impl std::fmt::Debug for TermId {
+impl std::fmt::Debug for TypeId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "$t{}", self.0)
     }
@@ -81,23 +57,23 @@ pub struct DebugTypeEnv<'a> {
     pub types: &'a TypeEnv,
     pub exprs: &'a Exprs,
 }
-struct DebugExprTerm<'a> {
+struct DebugExprType<'a> {
     expr: DebugExpr<'a>,
-    term: DebugTerm<'a>,
+    ty: DebugType<'a>,
 }
 
-impl<'a> std::fmt::Debug for DebugExprTerm<'a> {
+impl<'a> std::fmt::Debug for DebugExprType<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?} - {:?}", self.expr, self.term)
+        write!(f, "{:?} - {:?}", self.expr, self.ty)
     }
 }
 
 impl<'a> std::fmt::Debug for DebugTypeEnv<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_list()
-            .entries(self.types.exprs.iter().map(|(e, t)| DebugExprTerm {
+            .entries(self.types.exprs.iter().map(|(e, t)| DebugExprType {
                 expr: self.exprs.debug(*e),
-                term: self.types.debug(*t),
+                ty: self.types.debug(*t),
             }))
             .finish()
     }
@@ -106,7 +82,7 @@ impl<'a> std::fmt::Debug for DebugTypeEnv<'a> {
 impl std::fmt::Debug for TypeEnv {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_list()
-            .entries(self.terms.iter().map(|t| t.debug(self)))
+            .entries(self.types.iter().map(|t| t.debug(self)))
             .finish()
     }
 }

@@ -10,15 +10,15 @@ mod tests {
     use crate::test_suite::*;
     use lambda::ast::builder::*;
     use lambda::runtime::Value;
-    use lambda::types::{Term, Type};
+    use lambda::types::Type;
 
     #[test]
     fn test_fn_call() {
         let_n("f", "x".ret("x"))
             ._in("f".call(true))
             .test()
-            .assert_term(Term::Mono(Type::Bool))
-            .assert_print_term("Bool")
+            .assert_type(Type::Bool)
+            .assert_print_type("Bool")
             .assert_eval(Value::Bool(true));
     }
 
@@ -26,7 +26,7 @@ mod tests {
     fn test_ident() {
         "x".ret("x")
             .test()
-            .assert_print_term("(T0 -> T0)")
+            .assert_print_type("(T0 -> T0)")
             .assert_print_eval("fn x.");
     }
 
@@ -35,7 +35,7 @@ mod tests {
         ("y", "x")
             .ret("y")
             .test()
-            .assert_print_term("(T0 -> (T1 -> T0))")
+            .assert_print_type("(T0 -> (T1 -> T0))")
             .assert_print_eval("fn y.");
     }
 
@@ -43,7 +43,7 @@ mod tests {
     fn test_closure_curry_call() {
         _let("f", ("y", "x").ret("y"), "f".call(true))
             .test()
-            .assert_print_term("(T2 -> Bool)")
+            .assert_print_type("(T2 -> Bool)")
             .assert_print_eval("fn x.");
     }
 
@@ -53,7 +53,7 @@ mod tests {
             .ret("y")
             .call_n((true, false))
             .test()
-            .assert_print_term("Bool")
+            .assert_print_type("Bool")
             .assert_print_eval("true");
     }
 
@@ -61,7 +61,7 @@ mod tests {
     fn test_fn_ret_tru() {
         "x".ret(true)
             .test()
-            .assert_print_term("(T0 -> Bool)")
+            .assert_print_type("(T0 -> Bool)")
             .assert_print_eval("fn x.");
     }
 
@@ -72,7 +72,7 @@ mod tests {
             .and_let("h", ("x", "y").ret("x"))
             ._in("h".call_n(("f".call(true), "g".call(true))))
             .test()
-            .assert_print_term("Bool")
+            .assert_print_type("Bool")
             .assert_print_eval("true");
     }
 
@@ -82,7 +82,7 @@ mod tests {
             .and_let("h", ("a", "b").ret("a"))
             ._in("h".call_n(("id".call("id"), "id".call(true))))
             .test()
-            .assert_print_term("ForAll (T0): (T0 -> T0)")
+            .assert_print_type("ForAll (T0): (T0 -> T0)")
             .assert_print_eval("fn x.");
     }
 
@@ -130,14 +130,14 @@ mod tests {
     fn poly_2() {
         _let("f", ("a", "b").ret("b"), "f")
             .test()
-            .assert_print_term("ForAll (T0, T1): (T0 -> (T1 -> T1))");
+            .assert_print_type("ForAll (T0, T1): (T0 -> (T1 -> T1))");
     }
 
     #[test]
     fn calling_bool_in_let() {
         _let("x", true.call(false), "x")
             .test()
-            .dbg_term()
+            .dbg_type()
             .assert_error("Could not unify Fn(?, ?) != Bool");
     }
 
@@ -145,7 +145,7 @@ mod tests {
     fn infinite_recursion() {
         _let("x", "a".ret("x"), "x".call("x"))
             .test()
-            .dbg_term()
+            .dbg_type()
             .eval();
     }
 
@@ -153,7 +153,7 @@ mod tests {
     fn infinite_let() {
         _let("x", "x", "x")
             .test()
-            .dbg_term()
+            .dbg_type()
             .assert_error("Use of uninitialized value: x");
     }
 
@@ -162,7 +162,7 @@ mod tests {
         "a".ret("a".call("a"))
             .test()
             .dbg_env()
-            .dbg_term()
+            .dbg_type()
             .assert_error("Infinite type is not allowed");
     }
 }

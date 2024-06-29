@@ -1,13 +1,13 @@
 use lambda::ast::builder::*;
 use lambda::runtime::{eval, Value};
-use lambda::types::{DebugTypeEnv, Term};
+use lambda::types::{DebugTypeEnv, Type};
 
 pub struct Test {
     exprs: lambda::ast::Exprs,
     root: lambda::ast::ExprId,
     types: lambda::types::TypeEnv,
     rt: lambda::runtime::RunEnv,
-    term: lambda::types::Result<lambda::types::Term>,
+    ty: lambda::types::Result<lambda::types::Type>,
 }
 
 pub trait TestExt: BuilderFn + Sized {
@@ -15,13 +15,13 @@ pub trait TestExt: BuilderFn + Sized {
         let (root, exprs) = self.root();
         let mut types = Default::default();
         let rt = Default::default();
-        let term = lambda::types::type_of(&exprs, &mut types, root);
+        let ty = lambda::types::type_of(&exprs, &mut types, root);
         Test {
             exprs,
             root,
             rt,
             types,
-            term,
+            ty,
         }
     }
 }
@@ -34,12 +34,12 @@ impl Test {
     }
     #[track_caller]
     pub fn assert_error(&mut self, expected: &str) -> &mut Self {
-        let term = self
-            .term
+        let ty = self
+            .ty
             .as_ref()
             .map(|t| t.debug(&self.types))
             .expect_err("Expected type error, but found type");
-        assert_eq!(expected.trim(), format!("{term}"));
+        assert_eq!(expected.trim(), format!("{ty}"));
         self
     }
     #[track_caller]
@@ -49,15 +49,15 @@ impl Test {
         self
     }
     #[track_caller]
-    pub fn assert_term(&mut self, expected: Term) -> &mut Self {
-        let term = self.term.as_ref().expect("Valid type");
-        assert_eq!(expected.debug(&self.types), term.debug(&self.types));
+    pub fn assert_type(&mut self, expected: Type) -> &mut Self {
+        let ty = self.ty.as_ref().expect("Valid type");
+        assert_eq!(expected.debug(&self.types), ty.debug(&self.types));
         self
     }
     #[track_caller]
-    pub fn assert_print_term(&mut self, expected: &str) -> &mut Self {
-        let term = self.term.as_ref().expect("Valid type");
-        assert_eq!(expected.trim(), self.types.print_term(term.clone()));
+    pub fn assert_print_type(&mut self, expected: &str) -> &mut Self {
+        let ty = self.ty.as_ref().expect("Valid type");
+        assert_eq!(expected.trim(), self.types.print_type(ty.clone()));
         self
     }
     #[track_caller]
@@ -84,9 +84,9 @@ impl Test {
         self
     }
 
-    pub fn dbg_term(&mut self) -> &mut Self {
-        if let Ok(term) = self.term.as_ref() {
-            eprintln!("{:?}", term.debug(&self.types));
+    pub fn dbg_type(&mut self) -> &mut Self {
+        if let Ok(ty) = self.ty.as_ref() {
+            eprintln!("{:?}", ty.debug(&self.types));
         }
         self
     }
