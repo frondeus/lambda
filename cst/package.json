@@ -46,8 +46,10 @@
   },
   "tree-sitter": [
     {
-      "scope": "source.lambda",
-      "injection-regex": "^lambda$"
+      "scope": "source.lbd",
+      "injection-regex": "^lambda$",
+      "file-types": ["lbd"],
+      "highlights":  "./queries/highlights.scm"
     }
   ]
 }

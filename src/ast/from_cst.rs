@@ -5,15 +5,18 @@ use super::Exprs;
 pub use tree_sitter::Node as SyntaxNode;
 pub use tree_sitter::Tree as SyntaxTree;
 
-pub fn from_source(code: &str) -> (ExprId, Exprs) {
+pub fn get_tree(code: &str) -> SyntaxTree {
     let mut parser = tree_sitter::Parser::new();
     parser
         .set_language(&tree_sitter_lambda::language())
         .unwrap();
 
     let tree = parser.parse(code, None).unwrap();
+    tree
+}
+
+pub fn from_tree(tree: SyntaxTree, code: &str) -> (ExprId, Exprs) {
     let root = tree.root_node();
-    // println!("{root:#}");
 
     let mut cursor = root.walk();
     let root = root
@@ -25,6 +28,11 @@ pub fn from_source(code: &str) -> (ExprId, Exprs) {
     from_node(root, code).root()
 }
 
+pub fn from_source(code: &str) -> (ExprId, Exprs) {
+    let tree = get_tree(code);
+    from_tree(tree, code)
+}
+
 fn from_field<'t>(node: SyntaxNode<'t>, source: &'t str, field: &str) -> impl BuilderFn + 't {
     from_node(node.child_by_field_name(field).unwrap(), source)
 }
@@ -32,8 +40,11 @@ fn from_field<'t>(node: SyntaxNode<'t>, source: &'t str, field: &str) -> impl Bu
 fn from_node<'t>(node: SyntaxNode<'t>, source: &'t str) -> impl BuilderFn + 't {
     move |e: &mut Exprs| match node.kind() {
         "(" => from_node(node.next_sibling().unwrap(), source).build(e),
-        "true" => true.build(e),
-        "false" => false.build(e),
+        "bool" => match node.child(0).unwrap().kind() {
+            "true" => true.build(e),
+            "false" => false.build(e),
+            kind => todo!("{kind}"),
+        }
         "let" => _let(
             from_field_str(node, source, "key"),
             from_field(node, source, "value"),

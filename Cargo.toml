@@ -12,6 +12,8 @@ arbitrary = { version = "1.3.2", features = ["derive"] }
 clap = { version = "4.5.8", features = ["derive", "env"] }
 test-case = "3.3.1"
 thiserror = "1.0.61"
+tokio = { version = "1.38.0", features = ["full"] }
+tower-lsp = "0.20.0"
 tree-sitter = "0.22.6"
 tree-sitter-lambda = { path = "./cst" }
 

@@ -14,13 +14,13 @@ module.exports = grammar({
     comment: $ => token(seq("#", /.*/)),
     _expr: $ => choice(
       seq("(", $._expr,  ")"),
-      "true",
-      "false",
+      $.bool,
       $.ident,
       $.def,
       $.call,
       $["let"]
     ),
+    bool: $ => choice("true", "false"),
     ident: $ => /[a-zA-Z_0-9]+/,
     def: $ => seq( field("arg", $.ident), ":", field("body", $._expr) ),
     call: $ => prec.left(seq(
