@@ -2,16 +2,16 @@ use lambda::ast::builder::*;
 use lambda::runtime::{eval, Value};
 use lambda::types::{DebugTypeEnv, Type};
 
-pub struct Test {
-    exprs: lambda::ast::Exprs,
+pub struct Test<'t> {
+    exprs: lambda::ast::Exprs<'t>,
     root: lambda::ast::ExprId,
     types: lambda::types::TypeEnv,
     rt: lambda::runtime::RunEnv,
     ty: lambda::types::Result<lambda::types::Type>,
 }
 
-pub trait TestExt: BuilderFn + Sized {
-    fn test(self) -> Test {
+pub trait TestExt<'t>: BuilderFn<'t> + Sized {
+    fn test(self) -> Test<'t> {
         let (root, exprs) = self.root();
         let mut types = Default::default();
         let rt = Default::default();
@@ -25,8 +25,8 @@ pub trait TestExt: BuilderFn + Sized {
         }
     }
 }
-impl<B: BuilderFn> TestExt for B {}
-impl Test {
+impl<'t, B: BuilderFn<'t>> TestExt<'t> for B {}
+impl<'t> Test<'t> {
     #[track_caller]
     pub fn eval(&mut self) -> &mut Self {
         eval(&self.exprs, &mut self.rt, self.root);

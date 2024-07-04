@@ -1,8 +1,11 @@
 use std::collections::BTreeMap;
+pub use tree_sitter::Node as SyntaxNode;
+pub use tree_sitter::Tree as SyntaxTree;
 
 pub mod arbitrary;
 pub mod builder;
 pub mod from_cst;
+pub mod queries;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ExprId(usize);
@@ -11,24 +14,43 @@ pub struct ExprId(usize);
 pub struct InternId(usize);
 
 #[derive(Debug, PartialEq)]
-pub enum Expr {
-    Bool(bool),
-    Var(InternId),                 // "x"
-    Def(InternId, ExprId),         // "fn x: x"
-    Call(ExprId, ExprId),          // x(y)
-    Let(InternId, ExprId, ExprId), // let x = 0; x
+pub enum Expr<'a> {
+    Bool {
+        value: bool,
+        node: Option<SyntaxNode<'a>>,
+    },
+    Var {
+        name: InternId,
+        node: Option<SyntaxNode<'a>>,
+    }, // "x"
+    Def {
+        arg: InternId,
+        body: ExprId,
+        node: Option<SyntaxNode<'a>>,
+    }, // "fn x: x"
+    Call {
+        func: ExprId,
+        arg: ExprId,
+        node: Option<SyntaxNode<'a>>,
+    }, // x(y)
+    Let {
+        name: InternId,
+        value: ExprId,
+        body: ExprId,
+        node: Option<SyntaxNode<'a>>,
+    }, // let x = 0; x
 }
 
 #[derive(Default, PartialEq, Debug)]
-pub struct Exprs {
-    e: Vec<Expr>,
+pub struct Exprs<'a> {
+    e: Vec<Expr<'a>>,
     i_to_s: BTreeMap<InternId, String>,
     s_to_i: BTreeMap<String, InternId>,
     intern_counter: InternId,
 }
 
-impl Exprs {
-    pub fn push(&mut self, e: Expr) -> ExprId {
+impl<'a> Exprs<'a> {
+    pub fn push(&mut self, e: Expr<'a>) -> ExprId {
         if let Some(id) = self
             .e
             .iter()
@@ -68,11 +90,11 @@ impl Exprs {
 
 #[derive(PartialEq)]
 pub struct DebugExpr<'a> {
-    ex: &'a Exprs,
-    e: &'a Expr,
+    ex: &'a Exprs<'a>,
+    e: &'a Expr<'a>,
 }
-impl Expr {
-    pub fn debug<'a>(&'a self, e: &'a Exprs) -> DebugExpr<'a> {
+impl<'a> Expr<'a> {
+    pub fn debug(&'a self, e: &'a Exprs) -> DebugExpr<'a> {
         DebugExpr { e: self, ex: e }
     }
 }
@@ -84,19 +106,32 @@ impl std::fmt::Debug for ExprId {
 impl<'a> std::fmt::Debug for DebugExpr<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.e {
-            Expr::Bool(b) => f.debug_tuple("Bool").field(b).finish(),
-            Expr::Var(v) => write!(f, "{}", self.ex.get_str(*v)), //f.debug_tuple("Var").field(v).finish(),
-            Expr::Def(arg, ret) => f
+            Expr::Bool { value: b, node: _ } => f.debug_tuple("Bool").field(b).finish(),
+            Expr::Var { name: v, node: _ } => write!(f, "{}", self.ex.get_str(*v)), //f.debug_tuple("Var").field(v).finish(),
+            Expr::Def {
+                arg,
+                body: ret,
+                node: _,
+            } => f
                 .debug_tuple("Def")
                 .field(&self.ex.get_str(*arg))
                 .field(&self.ex.debug(*ret))
                 .finish(),
-            Expr::Call(fun, arg) => f
+            Expr::Call {
+                func: fun,
+                arg,
+                node: _,
+            } => f
                 .debug_tuple("Call")
                 .field(&self.ex.debug(*fun))
                 .field(&self.ex.debug(*arg))
                 .finish(),
-            Expr::Let(name, value, then) => f
+            Expr::Let {
+                name,
+                value,
+                body: then,
+                node: _,
+            } => f
                 .debug_tuple("Let")
                 .field(&self.ex.get_str(*name))
                 .field(&self.ex.debug(*value))

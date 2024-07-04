@@ -83,10 +83,18 @@ impl RunEnv {
 /// The whole point of having type system is to prevent those from occurring
 pub fn eval(e: &Exprs, env: &mut RunEnv, id: ExprId) -> Value {
     match e.get(id) {
-        Expr::Bool(b) => Value::Bool(*b),
-        Expr::Var(v) => env.get(*v).expect("Var not found"),
-        Expr::Def(name, body) => Value::Fn(e.get_str(*name).into(), *name, *body, env.clone()),
-        Expr::Call(f, arg) => match eval(e, env, *f) {
+        Expr::Bool { value: b, node: _ } => Value::Bool(*b),
+        Expr::Var { name: v, node: _ } => env.get(*v).expect("Var not found"),
+        Expr::Def {
+            arg: name,
+            body,
+            node: _,
+        } => Value::Fn(e.get_str(*name).into(), *name, *body, env.clone()),
+        Expr::Call {
+            func: f,
+            arg,
+            node: _,
+        } => match eval(e, env, *f) {
             Value::Fn(_name, name, body, captured_scope) => {
                 let arg = eval(e, env, *arg);
                 let mut inner = captured_scope.push(name, arg);
@@ -94,7 +102,12 @@ pub fn eval(e: &Exprs, env: &mut RunEnv, id: ExprId) -> Value {
             }
             _ => panic!("Expected function"),
         },
-        Expr::Let(name, value, body) => {
+        Expr::Let {
+            name,
+            value,
+            body,
+            node: _,
+        } => {
             let mut inner = env.push_uninit(*name);
             let value = eval(e, &mut inner, *value);
             inner

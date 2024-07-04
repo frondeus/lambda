@@ -23,7 +23,8 @@
     perSystem = { config, pkgs, system, self', ... }: let 
       inherit (pkgs) lib;
       craneLib = (inputs.crane.mkLib pkgs).overrideToolchain
-        inputs.fenix.packages.${system}.minimal.toolchain;
+        # (inputs.fenix.packages.${system}.fromManifestFile ./rust-toolchain.toml).minimalToolchain;
+        inputs.fenix.packages.${system}.stable.toolchain ;
       src = craneLib.cleanCargoSource (craneLib.path ./.);
       commonArgs = {
         inherit src;
@@ -45,7 +46,7 @@
         fileset = lib.fileset.unions [
           ./Cargo.toml
           ./Cargo.lock
-          # ./cst
+          ./cst
           crate
         ];
       };
@@ -69,6 +70,7 @@
         checks = self'.checks;
         packages = with pkgs; [  
           cargo-watch
+          # rust-analyzer-nightly
           tree-sitter
           colordiff
         ];

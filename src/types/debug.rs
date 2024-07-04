@@ -25,6 +25,29 @@ impl Type {
     }
 }
 
+impl<'a> std::fmt::Display for DebugType<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.t {
+            Type::Bool => write!(f, "Bool"),
+            Type::Function(from, to) => {
+                write!(f, "{} -> {}", self.env.debug(*from), self.env.debug(*to))
+            }
+            Type::ForAll(args, inner) => {
+                let mut args = args.iter().copied().map(|arg| self.env.debug(arg));
+                write!(f, "forall <")?;
+                if let Some(a) = args.next() {
+                    write!(f, "{a}")?;
+                }
+                for a in args {
+                    write!(f, ", {a}")?;
+                }
+                write!(f, ">: {}", self.env.debug(*inner))
+            }
+            Type::Var(i) => write!(f, "T{i}"),
+        }
+    }
+}
+
 impl<'a> std::fmt::Debug for DebugType<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.t {
@@ -55,7 +78,7 @@ impl std::fmt::Debug for TypeId {
 }
 pub struct DebugTypeEnv<'a> {
     pub types: &'a TypeEnv,
-    pub exprs: &'a Exprs,
+    pub exprs: &'a Exprs<'a>,
 }
 struct DebugExprType<'a> {
     expr: DebugExpr<'a>,

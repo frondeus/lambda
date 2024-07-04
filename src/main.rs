@@ -1,6 +1,6 @@
 use clap::{Parser, Subcommand};
 use lambda::{
-    ast::from_cst::{from_source, from_tree, get_tree},
+    ast::from_cst::{from_tree, get_tree},
     runtime::eval,
     types::type_of,
 };
@@ -41,7 +41,7 @@ async fn main() {
                 let tree = get_tree(&source);
                 println!("{:#}", tree.root_node());
 
-                let (root, exprs) = from_tree(tree, &source);
+                let (root, exprs) = from_tree(&tree, &source);
                 let mut types = Default::default();
 
                 println!("{:#?}", exprs.debug(root));
@@ -59,7 +59,8 @@ async fn main() {
         Command::Run { source } => {
             if let Some(source) = source {
                 let source = std::fs::read_to_string(source).unwrap();
-                let (root, exprs) = from_source(&source);
+                let tree = get_tree(&source);
+                let (root, exprs) = from_tree(&tree, &source);
                 let mut types = Default::default();
                 let mut runtime = Default::default();
                 if let Err(e) = type_of(&exprs, &mut types, root) {

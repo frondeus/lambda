@@ -1,8 +1,49 @@
 use super::*;
 
-pub trait BuilderFn {
-    fn build(self, exprs: &mut Exprs) -> Expr;
-    fn dependency(self, exprs: &mut Exprs) -> ExprId
+pub trait BuilderFn<'a> {
+    fn build(self, exprs: &mut Exprs<'a>) -> Expr<'a>;
+    fn build_with_node(self, exprs: &mut Exprs<'a>, node: SyntaxNode<'a>) -> Expr<'a>
+    where
+        Self: Sized,
+    {
+        match self.build(exprs) {
+            Expr::Bool { value: b, node: _ } => Expr::Bool {
+                value: b,
+                node: Some(node),
+            },
+            Expr::Var { name: id, node: _ } => Expr::Var {
+                name: id,
+                node: Some(node),
+            },
+            Expr::Def {
+                arg: id,
+                body: ret,
+                node: _,
+            } => Expr::Def {
+                arg: id,
+                body: ret,
+                node: Some(node),
+            },
+            Expr::Let {
+                name: id,
+                value,
+                body: then,
+                node: _,
+            } => Expr::Let {
+                name: id,
+                value,
+                body: then,
+                node: Some(node),
+            },
+            Expr::Call { func, arg, node: _ } => Expr::Call {
+                func,
+                arg,
+                node: Some(node),
+            },
+        }
+    }
+
+    fn dependency(self, exprs: &mut Exprs<'a>) -> ExprId
     where
         Self: Sized,
     {
@@ -10,7 +51,7 @@ pub trait BuilderFn {
         exprs.push(ast)
     }
 
-    fn root(self) -> (ExprId, Exprs)
+    fn root(self) -> (ExprId, Exprs<'a>)
     where
         Self: Sized,
     {
@@ -20,122 +61,148 @@ pub trait BuilderFn {
     }
 }
 
-impl<F> BuilderFn for F
+impl<'a, F> BuilderFn<'a> for F
 where
-    F: FnOnce(&mut Exprs) -> Expr,
+    F: FnOnce(&mut Exprs<'a>) -> Expr<'a>,
 {
-    fn build(self, exprs: &mut Exprs) -> Expr {
+    fn build(self, exprs: &mut Exprs<'a>) -> Expr<'a> {
         (self)(exprs)
     }
 }
 
 pub fn atom(ex: Expr) -> impl BuilderFn {
-    |_e: &mut Exprs| ex
+    move |_e: &mut Exprs| ex
 }
 
 pub fn var(name: &str) -> impl BuilderFn {
     let name = name.to_string();
-    move |e: &mut Exprs| Expr::Var(e.push_str(name))
-}
-
-pub fn boolean(b: bool) -> impl BuilderFn {
-    atom(Expr::Bool(b))
-}
-
-pub fn def(arg: &str, ret: impl BuilderFn) -> impl BuilderFn {
-    let arg = arg.to_string();
-    move |e: &mut Exprs| Expr::Def(e.push_str(arg), ret.dependency(e))
-}
-
-pub fn _let(name: &str, value: impl BuilderFn, then: impl BuilderFn) -> impl BuilderFn {
-    let name = name.to_string();
-    move |e: &mut Exprs| Expr::Let(e.push_str(name), value.dependency(e), then.dependency(e))
-}
-
-pub fn call(fun: impl BuilderFn, arg: impl BuilderFn) -> impl BuilderFn {
-    move |e: &mut Exprs| Expr::Call(fun.dependency(e), arg.dependency(e))
-}
-
-// Syntax Sugar
-impl BuilderFn for bool {
-    fn build(self, _: &mut Exprs) -> Expr {
-        Expr::Bool(self)
+    move |e: &mut Exprs| Expr::Var {
+        name: e.push_str(name),
+        node: None,
     }
 }
 
-impl BuilderFn for &str {
-    fn build(self, e: &mut Exprs) -> Expr {
+pub fn boolean<'t>(b: bool) -> impl BuilderFn<'t> {
+    atom(Expr::Bool {
+        value: b,
+        node: None,
+    })
+}
+
+pub fn def<'t>(arg: &'t str, ret: impl BuilderFn<'t>) -> impl BuilderFn<'t> {
+    let arg = arg.to_string();
+    move |e: &mut Exprs<'t>| Expr::Def {
+        arg: e.push_str(arg),
+        body: ret.dependency(e),
+        node: None,
+    }
+}
+
+pub fn _let<'t>(
+    name: &'t str,
+    value: impl BuilderFn<'t>,
+    then: impl BuilderFn<'t>,
+) -> impl BuilderFn<'t> {
+    let name = name.to_string();
+    move |e: &mut Exprs<'t>| Expr::Let {
+        name: e.push_str(name),
+        value: value.dependency(e),
+        body: then.dependency(e),
+        node: None,
+    }
+}
+
+pub fn call<'t>(fun: impl BuilderFn<'t>, arg: impl BuilderFn<'t>) -> impl BuilderFn<'t> {
+    move |e: &mut Exprs<'t>| Expr::Call {
+        func: fun.dependency(e),
+        arg: arg.dependency(e),
+        node: None,
+    }
+}
+
+// Syntax Sugar
+impl<'t> BuilderFn<'t> for bool {
+    fn build(self, _: &mut Exprs<'t>) -> Expr<'t> {
+        Expr::Bool {
+            value: self,
+            node: None,
+        }
+    }
+}
+
+impl<'t> BuilderFn<'t> for &'t str {
+    fn build(self, e: &mut Exprs<'t>) -> Expr<'t> {
         var(self).build(e)
     }
 }
 
-pub trait BuilderFnExt: BuilderFn {
-    fn call(self, arg: impl BuilderFn) -> impl BuilderFn
+pub trait BuilderFnExt<'t>: BuilderFn<'t> {
+    fn call(self, arg: impl BuilderFn<'t>) -> impl BuilderFn<'t>
     where
         Self: Sized,
     {
         call(self, arg)
     }
 
-    fn call_n(self, arg: impl CallnArgs) -> impl BuilderFn
+    fn call_n(self, arg: impl CallnArgs<'t>) -> impl BuilderFn<'t>
     where
         Self: Sized,
     {
         arg.call(self)
     }
 }
-impl<B: BuilderFn> BuilderFnExt for B {}
+impl<'t, B: BuilderFn<'t>> BuilderFnExt<'t> for B {}
 
-pub fn calln(func: impl BuilderFn, args: impl CallnArgs) -> impl BuilderFn {
+pub fn calln<'t>(func: impl BuilderFn<'t>, args: impl CallnArgs<'t>) -> impl BuilderFn<'t> {
     args.call(func)
 }
 
-pub trait CallnArgs {
-    fn call(self, func: impl BuilderFn) -> impl BuilderFn;
+pub trait CallnArgs<'t> {
+    fn call(self, func: impl BuilderFn<'t>) -> impl BuilderFn<'t>;
 }
 
-impl<T: BuilderFn> CallnArgs for (T,) {
-    fn call(self, func: impl BuilderFn) -> impl BuilderFn {
+impl<'t, T: BuilderFn<'t>> CallnArgs<'t> for (T,) {
+    fn call(self, func: impl BuilderFn<'t>) -> impl BuilderFn<'t> {
         call(func, self.0)
     }
 }
 
-impl<T1, T2> CallnArgs for (T1, T2)
+impl<'t, T1, T2> CallnArgs<'t> for (T1, T2)
 where
-    T1: BuilderFn,
-    T2: BuilderFn,
+    T1: BuilderFn<'t>,
+    T2: BuilderFn<'t>,
 {
-    fn call(self, func: impl BuilderFn) -> impl BuilderFn {
+    fn call(self, func: impl BuilderFn<'t>) -> impl BuilderFn<'t> {
         call(call(func, self.0), self.1)
     }
 }
 
-pub fn let_n<F: BuilderFn>(name: &'static str, value: F) -> Let<F> {
+pub fn let_n<'t, F: BuilderFn<'t>>(name: &'t str, value: F) -> Let<'t, F> {
     Let(name, value)
 }
 
-pub trait DefLike {
-    fn ret(self, ret: impl BuilderFn) -> impl BuilderFn;
+pub trait DefLike<'t> {
+    fn ret(self, ret: impl BuilderFn<'t>) -> impl BuilderFn<'t>;
 }
 
-impl DefLike for &'static str {
-    fn ret(self, ret: impl BuilderFn) -> impl BuilderFn {
+impl<'t> DefLike<'t> for &'static str {
+    fn ret(self, ret: impl BuilderFn<'t>) -> impl BuilderFn<'t> {
         def(self, ret)
     }
 }
 
-impl DefLike for (&'static str, &'static str) {
-    fn ret(self, ret: impl BuilderFn) -> impl BuilderFn {
+impl<'t> DefLike<'t> for (&'static str, &'static str) {
+    fn ret(self, ret: impl BuilderFn<'t>) -> impl BuilderFn<'t> {
         let (a, b) = self;
         def(a, def(b, ret))
     }
 }
 
-pub struct Let<F: BuilderFn>(&'static str, F);
-pub trait LetLike {
-    fn _in(self, then: impl BuilderFn) -> impl BuilderFn;
+pub struct Let<'t, F: BuilderFn<'t>>(&'t str, F);
+pub trait LetLike<'t> {
+    fn _in(self, then: impl BuilderFn<'t>) -> impl BuilderFn<'t>;
 
-    fn and_let<G: BuilderFn>(self, name: &'static str, value: G) -> (Self, Let<G>)
+    fn and_let<G: BuilderFn<'t>>(self, name: &'t str, value: G) -> (Self, Let<G>)
     where
         Self: Sized,
     {
@@ -143,20 +210,20 @@ pub trait LetLike {
     }
 }
 
-impl<A, B> LetLike for (A, B)
+impl<'t, A, B> LetLike<'t> for (A, B)
 where
-    A: LetLike,
-    B: LetLike,
+    A: LetLike<'t>,
+    B: LetLike<'t>,
 {
-    fn _in(self, then: impl BuilderFn) -> impl BuilderFn {
+    fn _in(self, then: impl BuilderFn<'t>) -> impl BuilderFn<'t> {
         let (a, b) = self;
         let b = b._in(then);
         a._in(b)
     }
 }
 
-impl<F: BuilderFn> LetLike for Let<F> {
-    fn _in(self, then: impl BuilderFn) -> impl BuilderFn {
+impl<'t, F: BuilderFn<'t>> LetLike<'t> for Let<'t, F> {
+    fn _in(self, then: impl BuilderFn<'t>) -> impl BuilderFn<'t> {
         _let(self.0, self.1, then)
     }
 }

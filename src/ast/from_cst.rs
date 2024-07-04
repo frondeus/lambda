@@ -1,9 +1,7 @@
 use super::builder::*;
 use super::ExprId;
 use super::Exprs;
-
-pub use tree_sitter::Node as SyntaxNode;
-pub use tree_sitter::Tree as SyntaxTree;
+use super::{SyntaxNode, SyntaxTree};
 
 pub fn get_tree(code: &str) -> SyntaxTree {
     let mut parser = tree_sitter::Parser::new();
@@ -11,60 +9,58 @@ pub fn get_tree(code: &str) -> SyntaxTree {
         .set_language(&tree_sitter_lambda::language())
         .unwrap();
 
-    let tree = parser.parse(code, None).unwrap();
-    tree
+    parser.parse(code, None).unwrap()
 }
 
-pub fn from_tree(tree: SyntaxTree, code: &str) -> (ExprId, Exprs) {
+pub fn from_tree<'t>(tree: &'t SyntaxTree, code: &'t str) -> (ExprId, Exprs<'t>) {
     let root = tree.root_node();
 
     let mut cursor = root.walk();
-    let root = root
-        .children(&mut cursor)
-        .filter(|c| !c.is_extra())
-        .next()
-        .unwrap();
+    let root = root.children(&mut cursor).find(|c| !c.is_extra()).unwrap();
 
     from_node(root, code).root()
 }
 
-pub fn from_source(code: &str) -> (ExprId, Exprs) {
-    let tree = get_tree(code);
-    from_tree(tree, code)
-}
+// pub fn from_source(code: &str) -> (ExprId, Exprs) {
+//     let tree = get_tree(code);
+//     from_tree(&tree, code)
+// }
 
-fn from_field<'t>(node: SyntaxNode<'t>, source: &'t str, field: &str) -> impl BuilderFn + 't {
+fn from_field<'t>(node: SyntaxNode<'t>, source: &'t str, field: &str) -> impl BuilderFn<'t> + 't {
     from_node(node.child_by_field_name(field).unwrap(), source)
 }
 
-fn from_node<'t>(node: SyntaxNode<'t>, source: &'t str) -> impl BuilderFn + 't {
-    move |e: &mut Exprs| match node.kind() {
+fn from_node<'t>(node: SyntaxNode<'t>, source: &'t str) -> impl BuilderFn<'t> + 't {
+    move |e: &mut Exprs<'t>| match node.kind() {
         "(" => from_node(node.next_sibling().unwrap(), source).build(e),
         "bool" => match node.child(0).unwrap().kind() {
-            "true" => true.build(e),
-            "false" => false.build(e),
+            "true" => true.build_with_node(e, node),
+            "false" => false.build_with_node(e, node),
             kind => todo!("{kind}"),
-        }
+        },
         "let" => _let(
             from_field_str(node, source, "key"),
             from_field(node, source, "value"),
             from_field(node, source, "in"),
         )
-        .build(e),
+        .build_with_node(e, node),
         "def" => def(
             from_field_str(node, source, "arg"),
             from_field(node, source, "body"),
         )
-        .build(e),
+        .build_with_node(e, node),
         "ident" => var(from_str(node, source)).build(e),
         "call" => call(
             from_field(node, source, "func"),
             from_field(node, source, "arg"),
         )
-        .build(e),
+        .build_with_node(e, node),
         kind => todo!("{kind}"),
     }
 }
+// move |e: &mut Exprs| match node.kind() {
+//     }
+// }
 
 fn from_field_str<'t>(node: SyntaxNode<'t>, source: &'t str, field: &str) -> &'t str {
     from_str(
@@ -90,7 +86,9 @@ mod tests {
             let mut exprs = Exprs::default();
             let r = $e.dependency(&mut exprs);
             let expected = exprs.debug(r);
-            assert_eq!($a, expected);
+            let e = format!("{:?}", expected);
+            let a = format!("{:?}", $a);
+            assert_eq!(e, a);
         }};
     }
 
@@ -100,8 +98,9 @@ mod tests {
     #[test_case("a: a", def("a", "a"))]
     #[test_case("a b", "a".call("b"))]
     #[test_case("a b c", "a".call_n(("b", "c")))]
-    fn test_cst(source: &str, expected: impl BuilderFn) {
-        let (r, exprs) = from_source(source);
+    fn test_cst<'t>(source: &'t str, expected: impl BuilderFn<'t>) {
+        let tree = get_tree(source);
+        let (r, exprs) = from_tree(&tree, source);
         let actual = exprs.debug(r);
 
         assert_expected!(expected, actual);

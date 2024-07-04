@@ -78,14 +78,14 @@ pub fn type_of(e: &Exprs, env: &mut TypeEnv, id: ExprId) -> Result<Type> {
     let type_id = gather_cons(e, env, id)?;
     let type_id = unify(env, type_id)?;
 
-    Ok(env.get_type(type_id).expect("Type"))
+    Ok(env.get_type(type_id))
 }
 
 /// First step of type inference - gathering constraints, and solving trivial types
 fn gather_cons(e: &Exprs, env: &mut TypeEnv, id: ExprId) -> Result<TypeId> {
     Ok(match e.get(id) {
-        Expr::Bool(_) => env.set_type_for_expr(id, Type::Bool),
-        Expr::Var(name) => {
+        Expr::Bool { value: _, node: _ } => env.set_type_for_expr(id, Type::Bool),
+        Expr::Var { name, node: _ } => {
             let type_id = env
                 .get_vars_type_id(e, *name)?
                 .ok_or(TypeError::UndefinedVariable {
@@ -93,16 +93,20 @@ fn gather_cons(e: &Exprs, env: &mut TypeEnv, id: ExprId) -> Result<TypeId> {
                 })?;
             env.set_type_id_for_expr(id, type_id)
         }
-        Expr::Def(name, body) => {
+        Expr::Def {
+            arg: name,
+            body,
+            node: _,
+        } => {
             let var = env.new_var();
             let var = env.push_scope(*name, var);
             let ret = gather_cons(e, env, *body)?;
             env.pop_scope();
             env.set_type_for_expr(id, Type::Function(var, ret))
         }
-        Expr::Call(func, arg) => {
+        Expr::Call { func, arg, node: _ } => {
             let func_type_id = gather_cons(e, env, *func)?;
-            let func_type = env.get_type(func_type_id).expect("Type");
+            let func_type = env.get_type(func_type_id);
 
             let arg_id = gather_cons(e, env, *arg)?;
             let (from, to) = match func_type.clone() {
@@ -127,11 +131,16 @@ fn gather_cons(e: &Exprs, env: &mut TypeEnv, id: ExprId) -> Result<TypeId> {
             env.constraints.push(from, arg_id);
             env.set_type_id_for_expr(id, to)
         }
-        Expr::Let(name, value_id, then) => {
+        Expr::Let {
+            name,
+            value: value_id,
+            body: then,
+            node: _,
+        } => {
             env.push_uninitialized_scope(*name);
 
             let value = gather_cons(e, env, *value_id)?;
-            let value_type = env.get_type(value).expect("Type");
+            let value_type = env.get_type(value);
             let value = match value_type {
                 Type::Function(from, to) => {
                     let poly_var = [from, to]
@@ -180,7 +189,7 @@ fn collect_vars(env: &TypeEnv, id: TypeId) -> Vec<TypeId> {
     queue.push_back(id);
 
     while let Some(id) = queue.pop_front() {
-        match env.get_type(id).expect("Type") {
+        match env.get_type(id) {
             Type::Bool => (),
             Type::Function(from, to) => {
                 queue.push_back(from);
@@ -202,8 +211,8 @@ fn unify(env: &mut TypeEnv, mut root_id: TypeId) -> Result<TypeId> {
         if left == right {
             continue;
         }
-        let l = env.get_type(left).expect("Type");
-        let r = env.get_type(right).expect("Type");
+        let l = env.get_type(left);
+        let r = env.get_type(right);
 
         match (l, r) {
             (Type::Var(_), _r) => replace_all(env, left, right, &mut cons, &mut root_id)?,
@@ -233,7 +242,7 @@ fn unify(env: &mut TypeEnv, mut root_id: TypeId) -> Result<TypeId> {
 /// Instantiating allows us to avoid type error Int != Bool
 fn instantiate_poly(env: &mut TypeEnv, poly: Type) -> (TypeId, TypeId) {
     match poly.clone() {
-        Type::ForAll(vars, poly_type) => match env.get_type(poly_type).expect("Type") {
+        Type::ForAll(vars, poly_type) => match env.get_type(poly_type) {
             Type::ForAll(_, _) => panic!("Higher order polymorphism is not supported"),
 
             Type::Function(from, to) => instantiate(env, vars, from, to),
@@ -308,7 +317,7 @@ fn occurs(env: &mut TypeEnv, ty: TypeId, inside: TypeId) -> bool {
     if inside == ty {
         return true;
     }
-    match env.get_type(inside).expect("Type") {
+    match env.get_type(inside) {
         Type::Bool => false,
         Type::Function(arg, ret) => occurs(env, ty, arg) || occurs(env, ty, ret),
         Type::ForAll(vars, inside) => {
@@ -319,7 +328,7 @@ fn occurs(env: &mut TypeEnv, ty: TypeId, inside: TypeId) -> bool {
 }
 
 fn replace(env: &mut TypeEnv, all_occurrences: TypeId, inside: TypeId, with: TypeId) -> TypeId {
-    match env.get_type(inside).expect("Type") {
+    match env.get_type(inside) {
         Type::Function(in_arg, in_ret) => {
             let arg = replace(env, all_occurrences, in_arg, with);
             let ret = replace(env, all_occurrences, in_ret, with);
@@ -351,8 +360,18 @@ impl TypeEnv {
         Ok(iter.find_map(|v| v.get(&name).and_then(|t| *t)))
     }
 
-    fn get_type(&self, id: TypeId) -> Option<Type> {
-        self.types.get(id.0).cloned()
+    pub fn get_type(&self, id: TypeId) -> Type {
+        self.types[id.0].clone()
+    }
+
+    pub fn type_of(&self, id: ExprId) -> Option<Type> {
+        self.exprs.get(&id).map(|id| self.get_type(*id))
+    }
+
+    pub fn exprs(&self) -> impl Iterator<Item = (ExprId, Type)> + '_ {
+        self.exprs
+            .iter()
+            .map(move |(id, ty_id)| (*id, self.get_type(*ty_id)))
     }
 
     fn add_type(&mut self, ty: Type) -> TypeId {
@@ -422,7 +441,7 @@ impl TypeEnv {
     }
 
     fn print_type_id(&self, id: TypeId) -> String {
-        let ty = self.get_type(id).expect("Type");
+        let ty = self.get_type(id);
         self.print_type(ty)
     }
 

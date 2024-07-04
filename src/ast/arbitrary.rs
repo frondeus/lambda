@@ -12,26 +12,42 @@ pub fn arbitrary_expr_id(e: &mut Exprs, u: &mut Unstructured) -> Result<ExprId> 
     Ok(e.push(expr))
 }
 
-fn arbitrary_expr(e: &mut Exprs, u: &mut Unstructured) -> Result<Expr> {
+fn arbitrary_expr<'a>(e: &mut Exprs<'a>, u: &mut Unstructured) -> Result<Expr<'a>> {
     let kind = u.arbitrary::<ExprKind>()?;
     Ok(match kind {
-        ExprKind::Bool => Expr::Bool(u.arbitrary()?),
+        ExprKind::Bool => Expr::Bool {
+            value: u.arbitrary()?,
+            node: None,
+        },
         ExprKind::Var => var(u.choose(NAMES)?).build(e),
         ExprKind::Def => {
             let ret = arbitrary_expr_id(e, u)?;
             let name = e.push_str(u.choose(NAMES)?);
-            Expr::Def(name, ret)
+            Expr::Def {
+                arg: name,
+                body: ret,
+                node: None,
+            }
         }
         ExprKind::Call => {
             let func = arbitrary_expr_id(e, u)?;
             let arg = arbitrary_expr_id(e, u)?;
-            Expr::Call(func, arg)
+            Expr::Call {
+                func,
+                arg,
+                node: None,
+            }
         }
         ExprKind::Let => {
             let name = e.push_str(u.choose(NAMES)?);
             let value = arbitrary_expr_id(e, u)?;
             let then = arbitrary_expr_id(e, u)?;
-            Expr::Let(name, value, then)
+            Expr::Let {
+                name,
+                value,
+                body: then,
+                node: None,
+            }
         }
     })
 }
