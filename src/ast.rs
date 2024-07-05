@@ -23,8 +23,12 @@ pub enum Expr<'a> {
         name: InternId,
         node: Option<SyntaxNode<'a>>,
     }, // "x"
+    VarDef {
+        name: InternId,
+        node: Option<SyntaxNode<'a>>,
+    },
     Def {
-        arg: InternId,
+        arg: ExprId,
         body: ExprId,
         node: Option<SyntaxNode<'a>>,
     }, // "fn x: x"
@@ -34,11 +38,24 @@ pub enum Expr<'a> {
         node: Option<SyntaxNode<'a>>,
     }, // x(y)
     Let {
-        name: InternId,
+        name: ExprId,
         value: ExprId,
         body: ExprId,
         node: Option<SyntaxNode<'a>>,
     }, // let x = 0; x
+}
+
+pub fn var_def_to_str<'a>(e: &'a Exprs<'a>, id: ExprId) -> &'a str {
+    match e.get(id) {
+        Expr::VarDef { name, node: _ } => e.get_str(*name),
+        e => unreachable!("{e:?} is not VarDef"),
+    }
+}
+pub fn var_def_to_intern(e: &Exprs, id: ExprId) -> InternId {
+    match e.get(id) {
+        Expr::VarDef { name, node: _ } => *name,
+        e => unreachable!("{e:?} is not VarDef"),
+    }
 }
 
 #[derive(Default, PartialEq, Debug)]
@@ -107,14 +124,15 @@ impl<'a> std::fmt::Debug for DebugExpr<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.e {
             Expr::Bool { value: b, node: _ } => f.debug_tuple("Bool").field(b).finish(),
-            Expr::Var { name: v, node: _ } => write!(f, "{}", self.ex.get_str(*v)), //f.debug_tuple("Var").field(v).finish(),
+            Expr::Var { name: v, node: _ } => write!(f, "{}", self.ex.get_str(*v)),
+            Expr::VarDef { name, node: _ } => write!(f, "Var({})", self.ex.get_str(*name)),
             Expr::Def {
                 arg,
                 body: ret,
                 node: _,
             } => f
                 .debug_tuple("Def")
-                .field(&self.ex.get_str(*arg))
+                .field(&self.ex.debug(*arg))
                 .field(&self.ex.debug(*ret))
                 .finish(),
             Expr::Call {
@@ -133,7 +151,7 @@ impl<'a> std::fmt::Debug for DebugExpr<'a> {
                 node: _,
             } => f
                 .debug_tuple("Let")
-                .field(&self.ex.get_str(*name))
+                .field(&self.ex.debug(*name))
                 .field(&self.ex.debug(*value))
                 .field(&self.ex.debug(*then))
                 .finish(),

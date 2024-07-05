@@ -1,7 +1,7 @@
 use std::collections::{BTreeSet, HashMap, VecDeque};
 use thiserror::Error;
 
-use crate::ast::{Expr, ExprId, Exprs, InternId};
+use crate::ast::{var_def_to_intern, Expr, ExprId, Exprs, InternId};
 
 mod debug;
 pub use debug::*;
@@ -93,13 +93,16 @@ fn gather_cons(e: &Exprs, env: &mut TypeEnv, id: ExprId) -> Result<TypeId> {
                 })?;
             env.set_type_id_for_expr(id, type_id)
         }
+        Expr::VarDef { .. } => unreachable!(),
         Expr::Def {
             arg: name,
             body,
             node: _,
         } => {
             let var = env.new_var();
-            let var = env.push_scope(*name, var);
+            let name_intern = var_def_to_intern(e, *name);
+            let var = env.push_scope(name_intern, var);
+            env.set_type_id_for_expr(*name, var);
             let ret = gather_cons(e, env, *body)?;
             env.pop_scope();
             env.set_type_for_expr(id, Type::Function(var, ret))
@@ -137,7 +140,8 @@ fn gather_cons(e: &Exprs, env: &mut TypeEnv, id: ExprId) -> Result<TypeId> {
             body: then,
             node: _,
         } => {
-            env.push_uninitialized_scope(*name);
+            let name_intern = var_def_to_intern(e, *name);
+            env.push_uninitialized_scope(name_intern);
 
             let value = gather_cons(e, env, *value_id)?;
             let value_type = env.get_type(value);
@@ -160,7 +164,8 @@ fn gather_cons(e: &Exprs, env: &mut TypeEnv, id: ExprId) -> Result<TypeId> {
                 _ => value,
             };
 
-            env.replace_with_some(*name, value);
+            env.set_type_id_for_expr(*name, value);
+            env.replace_with_some(name_intern, value);
 
             let then = gather_cons(e, env, *then)?;
             env.pop_scope();

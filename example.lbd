@@ -1,4 +1,3 @@
-let g = a: a; 
-g 
-true 
-false
+let g = a: a;
+g
+true

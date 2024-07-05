@@ -1,6 +1,6 @@
 use std::{cell::RefCell, fmt::Display, mem::MaybeUninit, rc::Rc};
 
-use crate::ast::{Expr, ExprId, Exprs, InternId};
+use crate::ast::{var_def_to_intern, var_def_to_str, Expr, ExprId, Exprs, InternId};
 
 #[derive(Clone, Debug)]
 pub enum Value {
@@ -85,11 +85,17 @@ pub fn eval(e: &Exprs, env: &mut RunEnv, id: ExprId) -> Value {
     match e.get(id) {
         Expr::Bool { value: b, node: _ } => Value::Bool(*b),
         Expr::Var { name: v, node: _ } => env.get(*v).expect("Var not found"),
+        Expr::VarDef { .. } => unreachable!(),
         Expr::Def {
             arg: name,
             body,
             node: _,
-        } => Value::Fn(e.get_str(*name).into(), *name, *body, env.clone()),
+        } => Value::Fn(
+            var_def_to_str(e, *name).into(),
+            var_def_to_intern(e, *name),
+            *body,
+            env.clone(),
+        ),
         Expr::Call {
             func: f,
             arg,
@@ -108,7 +114,8 @@ pub fn eval(e: &Exprs, env: &mut RunEnv, id: ExprId) -> Value {
             body,
             node: _,
         } => {
-            let mut inner = env.push_uninit(*name);
+            let name = var_def_to_intern(e, *name);
+            let mut inner = env.push_uninit(name);
             let value = eval(e, &mut inner, *value);
             inner
                 .scope

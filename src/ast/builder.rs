@@ -11,6 +11,10 @@ pub trait BuilderFn<'a> {
                 value: b,
                 node: Some(node),
             },
+            Expr::VarDef { name, node: _ } => Expr::VarDef {
+                name,
+                node: Some(node),
+            },
             Expr::Var { name: id, node: _ } => Expr::Var {
                 name: id,
                 node: Some(node),
@@ -89,23 +93,59 @@ pub fn boolean<'t>(b: bool) -> impl BuilderFn<'t> {
     })
 }
 
-pub fn def<'t>(arg: &'t str, ret: impl BuilderFn<'t>) -> impl BuilderFn<'t> {
+fn var_def<'t>(arg: &'t str) -> impl BuilderFn<'t> {
     let arg = arg.to_string();
+    move |e: &mut Exprs<'t>| Expr::VarDef {
+        name: e.push_str(arg),
+        node: None,
+    }
+}
+
+pub fn def<'t>(arg: impl VarDefLike<'t>, ret: impl BuilderFn<'t>) -> impl BuilderFn<'t> {
     move |e: &mut Exprs<'t>| Expr::Def {
-        arg: e.push_str(arg),
+        arg: arg.var_def_dep(e),
         body: ret.dependency(e),
         node: None,
     }
 }
 
+pub struct VarDef<'t> {
+    pub arg: &'t str,
+    pub node: Option<SyntaxNode<'t>>,
+}
+impl<'t> BuilderFn<'t> for VarDef<'t> {
+    fn build(self, exprs: &mut Exprs<'t>) -> Expr<'t> {
+        match self.node {
+            None => var_def(self.arg).build(exprs),
+            Some(node) => var_def(self.arg).build_with_node(exprs, node),
+        }
+    }
+}
+
+pub trait VarDefLike<'t>: BuilderFn<'t> + Sized {
+    fn build_var_def(self, exprs: &mut Exprs<'t>) -> Expr<'t> {
+        match self.build(exprs) {
+            Expr::Var { name, node } => Expr::VarDef { name, node },
+            Expr::VarDef { name, node } => Expr::VarDef { name, node },
+            e => unreachable!("{:?} is not Var", e),
+        }
+    }
+    fn var_def_dep(self, expr: &mut Exprs<'t>) -> ExprId {
+        let e = self.build_var_def(expr);
+        expr.push(e)
+    }
+}
+
+impl<'t> VarDefLike<'t> for &'t str {}
+impl<'t> VarDefLike<'t> for VarDef<'t> {}
+
 pub fn _let<'t>(
-    name: &'t str,
+    name: impl VarDefLike<'t>,
     value: impl BuilderFn<'t>,
     then: impl BuilderFn<'t>,
 ) -> impl BuilderFn<'t> {
-    let name = name.to_string();
     move |e: &mut Exprs<'t>| Expr::Let {
-        name: e.push_str(name),
+        name: name.var_def_dep(e),
         value: value.dependency(e),
         body: then.dependency(e),
         node: None,

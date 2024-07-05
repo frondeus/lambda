@@ -49,8 +49,7 @@ async fn main() {
             }
 
             let stream = if stream {
-                let stream = TcpStream::connect("127.0.0.1:9257").await.unwrap();
-                stream
+                TcpStream::connect("127.0.0.1:9257").await.unwrap()
             } else {
                 let listener = TcpListener::bind("127.0.0.1:9257").await.unwrap();
                 let (stream, _) = listener.accept().await.unwrap();

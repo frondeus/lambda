@@ -5,7 +5,7 @@ module.exports = grammar({
   name: "lambda",
 
   extras: $ => [
-    /\s|\r?\n/,
+    /\s/,
     $.comment
   ],
   word: $ => $.ident,

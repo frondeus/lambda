@@ -26,6 +26,7 @@ pub fn from_tree<'t>(tree: &'t SyntaxTree, code: &'t str) -> (ExprId, Exprs<'t>)
 
     let mut cursor = root.walk();
     let root = root.children(&mut cursor).find(|c| !c.is_extra()).unwrap();
+    // eprintln!("Root: {root:#}");
 
     from_node(root, code).root()
 }
@@ -48,17 +49,17 @@ fn from_node<'t>(node: SyntaxNode<'t>, source: &'t str) -> impl BuilderFn<'t> + 
             kind => todo!("{kind}"),
         },
         "let" => _let(
-            from_field_str(node, source, "key"),
+            from_var_def(node, source, "key"),
             from_field(node, source, "value"),
             from_field(node, source, "in"),
         )
         .build_with_node(e, node),
         "def" => def(
-            from_field_str(node, source, "arg"),
+            from_var_def(node, source, "arg"),
             from_field(node, source, "body"),
         )
         .build_with_node(e, node),
-        "ident" => var(from_str(node, source)).build(e),
+        "ident" => var(from_str(node, source)).build_with_node(e, node),
         "call" => call(
             from_field(node, source, "func"),
             from_field(node, source, "arg"),
@@ -67,20 +68,26 @@ fn from_node<'t>(node: SyntaxNode<'t>, source: &'t str) -> impl BuilderFn<'t> + 
         kind => todo!("{kind}"),
     }
 }
-// move |e: &mut Exprs| match node.kind() {
-//     }
-// }
 
-fn from_field_str<'t>(node: SyntaxNode<'t>, source: &'t str, field: &str) -> &'t str {
-    from_str(
-        node.child_by_field_name(field)
-            .unwrap_or_else(|| panic!("Could not find {field}")),
-        source,
-    )
+fn from_var_def<'t>(node: SyntaxNode<'t>, source: &'t str, field: &str) -> impl VarDefLike<'t> {
+    let node = node.child_by_field_name(field).unwrap();
+    VarDef {
+        arg: from_str(node, source),
+        node: Some(node),
+    }
 }
 
 fn from_str<'t>(node: SyntaxNode<'t>, source: &'t str) -> &'t str {
-    node.utf8_text(source.as_bytes()).unwrap()
+    let out: &str = node.utf8_text(source.as_bytes()).unwrap();
+
+    if out.contains(' ') {
+        eprintln!("Is extra: {}", node.is_extra());
+        eprintln!("{}", source.escape_debug());
+        eprintln!("{node:#}");
+        eprintln!("{node:?}");
+        panic!("Unexpected whitespace in identifier: `{out}`");
+    }
+    out
 }
 
 #[cfg(test)]
@@ -104,6 +111,14 @@ mod tests {
     #[test_case("true", true)]
     #[test_case("false", false)]
     #[test_case("let x = true; false", _let("x", true, false))]
+    #[test_case("let x = true;     \n\n\n false", _let("x", true, false) ; "With whitespace")]
+    #[test_case("let g = a: a;         \ng\ntrue\n", 
+        call(
+            _let("g", def("a", "a"), "g"),
+            true
+        ) ;
+         "Whitespace 2")
+    ]
     #[test_case("a: a", def("a", "a"))]
     #[test_case("a b", "a".call("b"))]
     #[test_case("a b c", "a".call_n(("b", "c")))]

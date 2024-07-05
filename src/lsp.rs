@@ -12,6 +12,7 @@ use lambda::{
     },
     types::{type_of, TypeEnv},
 };
+use ropey::Rope;
 use tokio::sync::RwLock;
 use tower_lsp::{
     jsonrpc::Result,
@@ -20,14 +21,17 @@ use tower_lsp::{
         DidChangeWorkspaceFoldersParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
         DidSaveTextDocumentParams, GotoDefinitionParams, GotoDefinitionResponse, Hover,
         HoverContents, HoverParams, HoverProviderCapability, InitializeParams, InitializeResult,
-        InitializedParams, InlayHint, InlayHintKind, InlayHintLabel, InlayHintLabelPart,
-        InlayHintParams, Location, MarkedString, MessageType, OneOf, Position, Range,
-        ServerCapabilities, TextDocumentContentChangeEvent, TextDocumentSyncCapability,
-        TextDocumentSyncKind, WorkspaceFoldersServerCapabilities, WorkspaceServerCapabilities,
+        InitializedParams, InlayHint, InlayHintKind, InlayHintLabel, InlayHintParams, MarkedString,
+        MessageType, OneOf, ServerCapabilities, TextDocumentContentChangeEvent,
+        TextDocumentSyncCapability, TextDocumentSyncKind, WorkspaceFoldersServerCapabilities,
+        WorkspaceServerCapabilities,
     },
     Client, LanguageServer,
 };
 use tree_sitter::Point;
+use utils::{intersects, to_point, to_position, RopeExt};
+
+mod utils;
 
 #[derive(Debug)]
 pub struct Backend {
@@ -44,7 +48,7 @@ pub struct State {
 #[derive(Debug)]
 struct File {
     tree: SyntaxTree,
-    source: String,
+    source: Rope,
 }
 
 impl State {
@@ -78,6 +82,7 @@ impl Backend {
         };
 
         let mut source = old_state.source.clone();
+        let mut tree = old_state.tree.clone();
         for TextDocumentContentChangeEvent {
             range,
             range_length: _,
@@ -86,19 +91,23 @@ impl Backend {
         {
             match range {
                 None => {
-                    source = text;
+                    source = Rope::from_str(&text);
                 }
-                Some(Range { start, end }) => {
-                    let start = position_to_offset(start, &old_state.source);
-                    let end = position_to_offset(end, &old_state.source);
+                Some(range) => {
+                    let start_offset = old_state.source.to_byte(range.start);
+                    let end_offset = old_state.source.to_byte(range.end);
 
-                    source.replace_range(start..end, &text);
+                    source.remove(start_offset..end_offset);
+                    source.insert(start_offset, &text);
+                    let edit = old_state.source.to_input_edit(range, &text);
+                    tree.edit(&edit);
                 }
             }
         }
-        // tracing::info!("After: {source}");
 
-        let new_tree = get_tree_diff(&source, &old_state.tree);
+        let src = format!("{source}");
+        let new_tree = get_tree_diff(&src, &tree);
+        // tracing::info!("New tree: {:#}", new_tree.root_node());
         *old_state = Arc::new(File {
             source,
             tree: new_tree,
@@ -109,6 +118,7 @@ impl Backend {
         let Ok(source) = tokio::fs::read_to_string(&file_path).await else {
             return;
         };
+        let source = Rope::from_str(&source);
 
         let mut state = self.state.write().await;
 
@@ -116,7 +126,7 @@ impl Backend {
             Entry::Occupied(mut slot) => {
                 let old_file = slot.get();
                 let old_tree = &old_file.tree;
-                let new_tree = get_tree_diff(&source, old_tree);
+                let new_tree = get_tree_diff(&source.to_string(), old_tree);
                 slot.insert(Arc::new(File {
                     tree: new_tree,
                     source,
@@ -124,7 +134,7 @@ impl Backend {
             }
             Entry::Vacant(slot) => {
                 slot.insert(Arc::new(File {
-                    tree: get_tree(&source),
+                    tree: get_tree(&source.to_string()),
                     source,
                 }));
             }
@@ -174,7 +184,8 @@ impl LanguageServer for Backend {
         };
         tracing::info!("Did change {:?}", file_path);
         // self.update_file(file_path).await;
-        self.update_file_with_changes(file_path, param.content_changes).await;
+        self.update_file_with_changes(file_path, param.content_changes)
+            .await;
     }
 
     async fn did_save(&self, param: DidSaveTextDocumentParams) {
@@ -233,13 +244,20 @@ impl LanguageServer for Backend {
         let position = &params.text_document_position_params.position;
         let point = Point::new(position.line as usize, position.character as usize);
 
-        let (root_expr, exprs) = from_tree(tree, source);
+        let src = format!("{source}");
+        let (root_expr, exprs) = from_tree(tree, &src);
+        tracing::info!("`{}`", source);
+        tracing::info!("{}", tree.root_node());
+        tracing::info!("{:?}", exprs.debug(root_expr));
         let mut types = TypeEnv::default();
 
         let root = tree.root_node();
         let node = root.named_descendant_for_point_range(point, point).unwrap();
 
+        // tracing::info!("Node: {:#}", node);
+
         let Some(node_expr_id) = exprs.find_expr_with_node(node) else {
+            // tracing::info!("Found no expr with this node");
             return Ok(None);
         };
 
@@ -274,14 +292,16 @@ impl LanguageServer for Backend {
         };
         let File { tree, source } = &*file;
 
-        let (root_expr, exprs) = from_tree(tree, source);
+        tracing::info!("Inlay hint for {}", params.text_document.uri);
+        let src = format!("{source}");
+        let (root_expr, exprs) = from_tree(tree, &src);
         let mut types = TypeEnv::default();
 
         // let root = tree.root_node();
         _ = type_of(&exprs, &mut types, root_expr);
         let range = params.range;
-        let range_start = position_to_point(range.start);
-        let range_end = position_to_point(range.end);
+        let range_start = to_point(range.start);
+        let range_end = to_point(range.end);
         let mut hints = Vec::new();
         for (e, ty) in types.exprs() {
             let e = exprs.get(e);
@@ -296,21 +316,10 @@ impl LanguageServer for Backend {
             let ty = ty.debug(&types);
 
             if intersects((range_start, range_end), (sp, ep)) {
+                tracing::info!("Hint for {e:?} - {ty}");
                 hints.push(InlayHint {
-                    position: point_to_position(ep),
-                    // label: InlayHintLabel::String(format!("{}", ty)),
-                    label: InlayHintLabel::LabelParts(vec![InlayHintLabelPart {
-                        value: format!("{}", ty),
-                        tooltip: None,
-                        location: Some(Location {
-                            uri: params.text_document.uri.clone(),
-                            range: Range {
-                                start: Position::new(0, 4),
-                                end: Position::new(0, 5),
-                            },
-                        }),
-                        command: None,
-                    }]),
+                    position: to_position(ep),
+                    label: InlayHintLabel::String(format!("{}", ty)),
                     kind: Some(InlayHintKind::TYPE),
                     text_edits: None,
                     data: None,
@@ -336,34 +345,3 @@ impl LanguageServer for Backend {
     }
 }
 
-fn point_to_position(point: Point) -> Position {
-    Position {
-        line: point.row as u32,
-        character: point.column as u32,
-    }
-}
-
-fn position_to_point(pos: Position) -> Point {
-    Point::new(pos.line as usize, pos.character as usize)
-}
-
-fn intersects(a: (Point, Point), b: (Point, Point)) -> bool {
-    let (a_start, a_end) = a;
-    let (b_start, b_end) = b;
-    a_start.row <= b_end.row
-        && a_end.row >= b_start.row
-        && a_start.column <= b_end.column
-        && a_end.column >= b_start.column
-}
-
-fn position_to_offset(pos: Position, source: &str) -> usize {
-    let Position { line, character } = pos;
-
-    // Based on line & character find offset in source
-    source
-        .lines()
-        .take(line as usize)
-        .map(|l| l.len() + 1)
-        .sum::<usize>()
-        + character as usize
-}

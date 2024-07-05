@@ -176,7 +176,7 @@
   "extras": [
     {
       "type": "PATTERN",
-      "value": "\\s|\\r?\\n"
+      "value": "\\s"
     },
     {
       "type": "SYMBOL",

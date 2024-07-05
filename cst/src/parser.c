@@ -218,14 +218,13 @@ static bool ts_lex(TSLexer *lexer, TSStateId state) {
   switch (state) {
     case 0:
       if (eof) ADVANCE(1);
-      if (lookahead == '\r') SKIP(0);
       if (lookahead == '#') ADVANCE(2);
       if (lookahead == '(') ADVANCE(3);
       if (lookahead == ')') ADVANCE(4);
       if (lookahead == ':') ADVANCE(6);
       if (lookahead == ';') ADVANCE(8);
       if (lookahead == '=') ADVANCE(7);
-      if (('\t' <= lookahead && lookahead <= '\f') ||
+      if (('\t' <= lookahead && lookahead <= '\r') ||
           lookahead == ' ') SKIP(0);
       if (('0' <= lookahead && lookahead <= '9') ||
           ('A' <= lookahead && lookahead <= 'Z') ||
@@ -272,11 +271,10 @@ static bool ts_lex_keywords(TSLexer *lexer, TSStateId state) {
   eof = lexer->eof(lexer);
   switch (state) {
     case 0:
-      if (lookahead == '\r') SKIP(0);
       if (lookahead == 'f') ADVANCE(1);
       if (lookahead == 'l') ADVANCE(2);
       if (lookahead == 't') ADVANCE(3);
-      if (('\t' <= lookahead && lookahead <= '\f') ||
+      if (('\t' <= lookahead && lookahead <= '\r') ||
           lookahead == ' ') SKIP(0);
       END_STATE();
     case 1:

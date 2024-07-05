@@ -23,6 +23,7 @@ fn arbitrary_expr<'a>(e: &mut Exprs<'a>, u: &mut Unstructured) -> Result<Expr<'a
         ExprKind::Def => {
             let ret = arbitrary_expr_id(e, u)?;
             let name = e.push_str(u.choose(NAMES)?);
+            let name = e.push(Expr::VarDef { name, node: None });
             Expr::Def {
                 arg: name,
                 body: ret,
@@ -40,6 +41,7 @@ fn arbitrary_expr<'a>(e: &mut Exprs<'a>, u: &mut Unstructured) -> Result<Expr<'a
         }
         ExprKind::Let => {
             let name = e.push_str(u.choose(NAMES)?);
+            let name = e.push(Expr::VarDef { name, node: None });
             let value = arbitrary_expr_id(e, u)?;
             let then = arbitrary_expr_id(e, u)?;
             Expr::Let {
