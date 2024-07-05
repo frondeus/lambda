@@ -12,6 +12,15 @@ pub fn get_tree(code: &str) -> SyntaxTree {
     parser.parse(code, None).unwrap()
 }
 
+pub fn get_tree_diff(code: &str, old: &SyntaxTree) -> SyntaxTree {
+    let mut parser = tree_sitter::Parser::new();
+    parser
+        .set_language(&tree_sitter_lambda::language())
+        .unwrap();
+
+    parser.parse(code, Some(old)).unwrap()
+}
+
 pub fn from_tree<'t>(tree: &'t SyntaxTree, code: &'t str) -> (ExprId, Exprs<'t>) {
     let root = tree.root_node();
 

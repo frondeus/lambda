@@ -6,6 +6,7 @@ use lambda::{
 };
 use lsp::Backend;
 use std::path::PathBuf;
+use tokio::net::{TcpListener, TcpStream};
 use tower_lsp::{LspService, Server};
 
 #[derive(Parser, Debug)]
@@ -16,9 +17,18 @@ struct Args {
 
 #[derive(Subcommand, Debug)]
 enum Command {
-    Lsp,
-    Run { source: Option<PathBuf> },
-    Debug { source: Option<PathBuf> },
+    Lsp {
+        #[arg(long)]
+        stdin: bool,
+        #[arg(long)]
+        stream: bool,
+    },
+    Run {
+        source: Option<PathBuf>,
+    },
+    Debug {
+        source: Option<PathBuf>,
+    },
 }
 
 mod lsp;
@@ -26,14 +36,30 @@ mod lsp;
 #[tokio::main]
 async fn main() {
     let args = Args::parse();
+    tracing_subscriber::fmt().init();
 
     match args.command {
-        Command::Lsp => {
-            let stdin = tokio::io::stdin();
-            let stdout = tokio::io::stdout();
+        Command::Lsp { stdin, stream } => {
+            if stdin {
+                let stdin = tokio::io::stdin();
+                let stdout = tokio::io::stdout();
 
+                let (service, socket) = LspService::new(Backend::new);
+                return Server::new(stdin, stdout, socket).serve(service).await;
+            }
+
+            let stream = if stream {
+                let stream = TcpStream::connect("127.0.0.1:9257").await.unwrap();
+                stream
+            } else {
+                let listener = TcpListener::bind("127.0.0.1:9257").await.unwrap();
+                let (stream, _) = listener.accept().await.unwrap();
+                stream
+            };
+
+            let (read, write) = tokio::io::split(stream);
             let (service, socket) = LspService::new(Backend::new);
-            Server::new(stdin, stdout, socket).serve(service).await;
+            Server::new(read, write, socket).serve(service).await;
         }
         Command::Debug { source } => {
             if let Some(source) = source {

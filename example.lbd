@@ -1,5 +1,4 @@
-let f = a: b: b;  f 
+let g = a: a; 
+g 
 true 
 false
-
-# (a: b: b) true false
