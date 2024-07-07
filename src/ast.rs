@@ -8,7 +8,7 @@ pub mod from_cst;
 pub mod queries;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
-pub struct ExprId(usize);
+pub struct ExprId(pub usize);
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd, Default, Debug)]
 pub struct InternId(usize);
@@ -60,10 +60,10 @@ pub fn var_def_to_intern(e: &Exprs, id: ExprId) -> InternId {
 
 #[derive(Default, PartialEq, Debug)]
 pub struct Exprs<'a> {
-    e: Vec<Expr<'a>>,
-    i_to_s: BTreeMap<InternId, String>,
-    s_to_i: BTreeMap<String, InternId>,
-    intern_counter: InternId,
+    pub e: Vec<Expr<'a>>,
+    pub i_to_s: BTreeMap<InternId, String>,
+    pub s_to_i: BTreeMap<String, InternId>,
+    pub intern_counter: InternId,
 }
 
 impl<'a> Exprs<'a> {

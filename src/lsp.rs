@@ -21,15 +21,15 @@ use tower_lsp::{
         DidChangeWorkspaceFoldersParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
         DidSaveTextDocumentParams, GotoDefinitionParams, GotoDefinitionResponse, Hover,
         HoverContents, HoverParams, HoverProviderCapability, InitializeParams, InitializeResult,
-        InitializedParams, InlayHint, InlayHintKind, InlayHintLabel, InlayHintParams, MarkedString,
-        MessageType, OneOf, ServerCapabilities, TextDocumentContentChangeEvent,
+        InitializedParams, InlayHint, InlayHintKind, InlayHintLabel, InlayHintParams, Location,
+        MarkedString, MessageType, OneOf, ServerCapabilities, TextDocumentContentChangeEvent,
         TextDocumentSyncCapability, TextDocumentSyncKind, WorkspaceFoldersServerCapabilities,
         WorkspaceServerCapabilities,
     },
     Client, LanguageServer,
 };
 use tree_sitter::Point;
-use utils::{intersects, to_point, to_position, RopeExt};
+use utils::{intersects, to_point, to_position, NodeExt, RopeExt};
 
 mod utils;
 
@@ -340,8 +340,53 @@ impl LanguageServer for Backend {
         &self,
         params: GotoDefinitionParams,
     ) -> Result<Option<GotoDefinitionResponse>> {
-        tracing::info!("GOTO: {params:#?}");
-        Ok(None)
+        let Some(file) = self.state.read().await.maybe_get_tree(
+            params
+                .text_document_position_params
+                .text_document
+                .uri
+                .to_file_path()
+                .ok(),
+        ) else {
+            return Ok(None);
+        };
+        let File { tree, source } = &*file;
+
+        let position = &params.text_document_position_params.position;
+        let point = Point::new(position.line as usize, position.character as usize);
+
+        let src = format!("{source}");
+        let (root_expr, exprs) = from_tree(tree, &src);
+
+        let ir = lambda::ir::Exprs::from_ast(&exprs, root_expr);
+
+        let root = tree.root_node();
+        let node = root.named_descendant_for_point_range(point, point).unwrap();
+        let Some(node_expr_id) = exprs.find_expr_with_node(node) else {
+            return Ok(None);
+        };
+
+        let expr = ir.get(node_expr_id);
+        let var = match expr {
+            lambda::ir::Expr::Var {
+                name: _,
+                id: Some(id),
+                node: _,
+            } => *id,
+            _ => return Ok(None),
+        };
+        let var = ir.get_var(var);
+        let def_id = var.defined;
+        let Some(def) = ir.get(def_id).node() else {
+            return Ok(None);
+        };
+
+        let def_range = NodeExt::range(&def);
+
+        Ok(Some(GotoDefinitionResponse::Scalar(Location {
+            // For now we have only one file
+            uri: params.text_document_position_params.text_document.uri,
+            range: def_range,
+        })))
     }
 }
-

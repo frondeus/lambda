@@ -1,6 +1,22 @@
 use ropey::Rope;
 use tower_lsp::lsp_types::{Position, Range};
-use tree_sitter::{InputEdit, Point};
+use tree_sitter::{InputEdit, Node, Point};
+
+pub trait NodeExt {
+    fn range(&self) -> Range;
+}
+
+impl<'a> NodeExt for Node<'a> {
+    fn range(&self) -> Range {
+        let start = self.start_position();
+        let end = self.end_position();
+
+        Range {
+            start: to_position(start),
+            end: to_position(end),
+        }
+    }
+}
 
 pub trait RopeExt {
     fn to_byte(&self, position: Position) -> usize;
