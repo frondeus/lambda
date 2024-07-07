@@ -1,7 +1,8 @@
-use std::collections::{BTreeSet, HashMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 use thiserror::Error;
 
-use crate::ast::{var_def_to_intern, Expr, ExprId, Exprs, InternId};
+use crate::ast::{ExprId, InternId};
+use crate::ir::{Expr, Exprs, VarId};
 
 mod debug;
 pub use debug::*;
@@ -20,9 +21,10 @@ pub struct TypeId(usize);
 
 #[derive(Default)]
 pub struct TypeEnv {
-    vars: Vec<HashMap<InternId, Option<TypeId>>>,
+    vars: BTreeMap<VarId, Option<TypeId>>,
     exprs: HashMap<ExprId, TypeId>,
     types: Vec<Type>,
+    /// For Type::Var counter
     var_counter: usize,
     constraints: Cons,
 }
@@ -85,12 +87,12 @@ pub fn type_of(e: &Exprs, env: &mut TypeEnv, id: ExprId) -> Result<Type> {
 fn gather_cons(e: &Exprs, env: &mut TypeEnv, id: ExprId) -> Result<TypeId> {
     Ok(match e.get(id) {
         Expr::Bool { value: _, node: _ } => env.set_type_for_expr(id, Type::Bool),
-        Expr::Var { name, node: _ } => {
-            let type_id = env
-                .get_vars_type_id(e, *name)?
-                .ok_or(TypeError::UndefinedVariable {
-                    name: e.get_str(*name).into(),
-                })?;
+        Expr::Var {
+            name,
+            id: var_id,
+            node: _,
+        } => {
+            let type_id = env.get_vars_type_id(e, *name, *var_id)?;
             env.set_type_id_for_expr(id, type_id)
         }
         Expr::VarDef { .. } => unreachable!(),
@@ -99,12 +101,11 @@ fn gather_cons(e: &Exprs, env: &mut TypeEnv, id: ExprId) -> Result<TypeId> {
             body,
             node: _,
         } => {
-            let var = env.new_var();
-            let name_intern = var_def_to_intern(e, *name);
-            let var = env.push_scope(name_intern, var);
+            let var = env.new_type_var_id();
+            let name_var = e.get(*name).unwrap_var_def();
+            env.set_var(name_var, var);
             env.set_type_id_for_expr(*name, var);
             let ret = gather_cons(e, env, *body)?;
-            env.pop_scope();
             env.set_type_for_expr(id, Type::Function(var, ret))
         }
         Expr::Call { func, arg, node: _ } => {
@@ -114,7 +115,7 @@ fn gather_cons(e: &Exprs, env: &mut TypeEnv, id: ExprId) -> Result<TypeId> {
             let arg_id = gather_cons(e, env, *arg)?;
             let (from, to) = match func_type.clone() {
                 Type::Var(_) => {
-                    let some_to = env.new_var_as_type();
+                    let some_to = env.new_type_var_id();
                     let has_to_be_function = env.add_type(Type::Function(arg_id, some_to));
 
                     env.constraints.push(func_type_id, has_to_be_function);
@@ -140,10 +141,11 @@ fn gather_cons(e: &Exprs, env: &mut TypeEnv, id: ExprId) -> Result<TypeId> {
             body: then,
             node: _,
         } => {
-            let name_intern = var_def_to_intern(e, *name);
-            env.push_uninitialized_scope(name_intern);
+            let name_var = e.get(*name).unwrap_var_def();
+            env.new_var(name_var);
 
             let value = gather_cons(e, env, *value_id)?;
+
             let value_type = env.get_type(value);
             let value = match value_type {
                 Type::Function(from, to) => {
@@ -165,10 +167,9 @@ fn gather_cons(e: &Exprs, env: &mut TypeEnv, id: ExprId) -> Result<TypeId> {
             };
 
             env.set_type_id_for_expr(*name, value);
-            env.replace_with_some(name_intern, value);
+            env.set_var(name_var, value);
 
             let then = gather_cons(e, env, *then)?;
-            env.pop_scope();
             env.set_type_id_for_expr(id, then)
         }
     })
@@ -269,7 +270,7 @@ fn instantiate(
     let mut new_cons = vec![];
 
     for var in vars.into_iter().rev() {
-        let new_var = env.new_var();
+        let new_var = env.new_type_var();
         let new_var_id = env.add_type(new_var);
         from = replace(env, var, from, new_var_id);
         to = replace(env, var, to, new_var_id);
@@ -346,23 +347,22 @@ fn replace(env: &mut TypeEnv, all_occurrences: TypeId, inside: TypeId, with: Typ
 }
 
 impl TypeEnv {
-    fn get_vars_type_id(&self, e: &Exprs, name: InternId) -> Result<Option<TypeId>> {
-        let mut iter = self.vars.iter().rev();
+    fn get_vars_type_id(&self, e: &Exprs, name: InternId, id: Option<VarId>) -> Result<TypeId> {
+        let Some(id) = id else {
+            return Err(TypeError::UndefinedVariable {
+                name: e.get_str(name).into(),
+            });
+        };
 
-        if let Some(last) = iter.next() {
-            match last.get(&name) {
-                Some(None) => {
-                    return Err(TypeError::Uninitialized {
-                        name: e.get_str(name).into(),
-                    });
-                }
+        let id = self.vars.get(&id).ok_or_else(|| {
+            let name = e.get_str(name).into();
+            TypeError::UndefinedVariable { name }
+        })?;
 
-                Some(Some(val)) => return Ok(Some(*val)),
-                None => (),
-            }
-        }
-
-        Ok(iter.find_map(|v| v.get(&name).and_then(|t| *t)))
+        id.ok_or_else(|| {
+            let name = e.get_str(name).into();
+            TypeError::Uninitialized { name }
+        })
     }
 
     pub fn get_type(&self, id: TypeId) -> Type {
@@ -404,44 +404,22 @@ impl TypeEnv {
         self.set_type_id_for_expr(id, type_id)
     }
 
-    fn push_scope(&mut self, name: InternId, value: Type) -> TypeId {
-        let type_id = self.add_type(value);
-        self.push_scope_with_id(name, type_id)
+    fn new_var(&mut self, id: VarId) {
+        self.vars.insert(id, None);
     }
 
-    fn push_scope_with_id(&mut self, name: InternId, type_id: TypeId) -> TypeId {
-        let mut vars = HashMap::new();
-
-        vars.insert(name, Some(type_id));
-        self.vars.push(vars);
-        type_id
+    fn set_var(&mut self, id: VarId, ty: TypeId) {
+        self.vars.insert(id, Some(ty));
     }
 
-    fn push_uninitialized_scope(&mut self, name: InternId) {
-        let mut vars = HashMap::new();
-
-        vars.insert(name, None);
-        self.vars.push(vars);
-    }
-
-    fn replace_with_some(&mut self, name: InternId, type_id: TypeId) -> TypeId {
-        let latest = self.vars.last_mut().expect("Last scope");
-        latest.insert(name, Some(type_id)).expect("There was None");
-        type_id
-    }
-
-    fn pop_scope(&mut self) {
-        self.vars.pop();
-    }
-
-    fn new_var(&mut self) -> Type {
+    fn new_type_var(&mut self) -> Type {
         let id = self.var_counter;
         self.var_counter += 1;
         Type::Var(id)
     }
 
-    fn new_var_as_type(&mut self) -> TypeId {
-        let ty = self.new_var();
+    fn new_type_var_id(&mut self) -> TypeId {
+        let ty = self.new_type_var();
         self.add_type(ty)
     }
 
@@ -483,7 +461,7 @@ mod tests {
         fn ident() {
             let mut env = TypeEnv::default();
 
-            let t0 = env.new_var_as_type();
+            let t0 = env.new_type_var_id();
             let source = Type::ForAll(vec![t0], env.add_type(Type::Function(t0, t0)));
 
             let (a_from, a_to) = instantiate_poly(&mut env, source);
@@ -498,8 +476,8 @@ mod tests {
         #[test]
         fn nested() {
             let mut env = TypeEnv::default();
-            let t0 = env.new_var_as_type();
-            let t1 = env.new_var_as_type();
+            let t0 = env.new_type_var_id();
+            let t1 = env.new_type_var_id();
 
             let t2 = env.add_type(Type::Function(t1, t0));
             let source = Type::ForAll(vec![t0, t1], env.add_type(Type::Function(t0, t2)));

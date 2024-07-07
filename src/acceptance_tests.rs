@@ -22,10 +22,11 @@ fn test_ident() {
 }
 
 #[test]
-fn test_closure() {
+fn test_closure_only() {
     ("y", "x")
         .ret("y")
         .test()
+        .dbg_env()
         .assert_print_type("(T0 -> (T1 -> T0))")
         .assert_print_eval("fn y.");
 }
@@ -155,4 +156,13 @@ fn infinite_type() {
         .dbg_env()
         .dbg_type()
         .assert_error("Infinite type is not allowed");
+}
+
+#[test]
+fn undefined_var() {
+    "a".test()
+        .dbg_env()
+        .dbg_type()
+        .assert_error("Variable `a` is not defined anywhere")
+        .eval();
 }

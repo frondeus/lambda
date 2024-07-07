@@ -68,15 +68,6 @@ pub struct Exprs<'a> {
 
 impl<'a> Exprs<'a> {
     pub fn push(&mut self, e: Expr<'a>) -> ExprId {
-        if let Some(id) = self
-            .e
-            .iter()
-            .enumerate()
-            .find(|(_, en)| en == &&e)
-            .map(|(id, _)| ExprId(id))
-        {
-            return id;
-        }
         let id = ExprId(self.e.len());
         self.e.push(e);
         id

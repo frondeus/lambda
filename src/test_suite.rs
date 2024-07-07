@@ -15,7 +15,8 @@ pub trait TestExt<'t>: BuilderFn<'t> + Sized {
         let (root, exprs) = self.root();
         let mut types = Default::default();
         let rt = Default::default();
-        let ty = lambda::types::type_of(&exprs, &mut types, root);
+        let ir = lambda::ir::Exprs::from_ast(&exprs, root);
+        let ty = lambda::types::type_of(&ir, &mut types, root);
         Test {
             exprs,
             root,
@@ -29,6 +30,9 @@ impl<'t, B: BuilderFn<'t>> TestExt<'t> for B {}
 impl<'t> Test<'t> {
     #[track_caller]
     pub fn eval(&mut self) -> &mut Self {
+        if self.ty.is_err() {
+            return self;
+        }
         eval(&self.exprs, &mut self.rt, self.root);
         self
     }

@@ -76,8 +76,9 @@ mod tests {
             let root = arbitrary_expr_id(&mut exprs, u)?;
             let mut types = TypeEnv::default();
             let mut rt = RunEnv::default();
+            let ir = crate::ir::Exprs::from_ast(&exprs, root);
 
-            let ty = crate::types::type_of(&exprs, &mut types, root);
+            let ty = crate::types::type_of(&ir, &mut types, root);
             if ty.is_ok() {
                 crate::runtime::eval(&exprs, &mut rt, root);
             }

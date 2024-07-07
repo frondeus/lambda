@@ -26,7 +26,6 @@ pub fn from_tree<'t>(tree: &'t SyntaxTree, code: &'t str) -> (ExprId, Exprs<'t>)
 
     let mut cursor = root.walk();
     let root = root.children(&mut cursor).find(|c| !c.is_extra()).unwrap();
-    // eprintln!("Root: {root:#}");
 
     from_node(root, code).root()
 }
@@ -78,16 +77,7 @@ fn from_var_def<'t>(node: SyntaxNode<'t>, source: &'t str, field: &str) -> impl 
 }
 
 fn from_str<'t>(node: SyntaxNode<'t>, source: &'t str) -> &'t str {
-    let out: &str = node.utf8_text(source.as_bytes()).unwrap();
-
-    if out.contains(' ') {
-        eprintln!("Is extra: {}", node.is_extra());
-        eprintln!("{}", source.escape_debug());
-        eprintln!("{node:#}");
-        eprintln!("{node:?}");
-        panic!("Unexpected whitespace in identifier: `{out}`");
-    }
-    out
+    node.utf8_text(source.as_bytes()).unwrap()
 }
 
 #[cfg(test)]

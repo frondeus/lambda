@@ -67,10 +67,11 @@ async fn main() {
                 println!("{:#}", tree.root_node());
 
                 let (root, exprs) = from_tree(&tree, &source);
+                let ir = lambda::ir::Exprs::from_ast(&exprs, root);
                 let mut types = Default::default();
 
                 println!("{:#?}", exprs.debug(root));
-                match type_of(&exprs, &mut types, root) {
+                match type_of(&ir, &mut types, root) {
                     Err(e) => {
                         eprintln!("{e}");
                         return;
@@ -86,9 +87,10 @@ async fn main() {
                 let source = std::fs::read_to_string(source).unwrap();
                 let tree = get_tree(&source);
                 let (root, exprs) = from_tree(&tree, &source);
+                let ir = lambda::ir::Exprs::from_ast(&exprs, root);
                 let mut types = Default::default();
                 let mut runtime = Default::default();
-                if let Err(e) = type_of(&exprs, &mut types, root) {
+                if let Err(e) = type_of(&ir, &mut types, root) {
                     eprintln!("{e}");
                     return;
                 }
@@ -104,4 +106,4 @@ async fn main() {
 pub mod test_suite;
 
 #[cfg(test)]
-mod tests;
+mod acceptance_tests;

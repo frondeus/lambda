@@ -246,6 +246,7 @@ impl LanguageServer for Backend {
 
         let src = format!("{source}");
         let (root_expr, exprs) = from_tree(tree, &src);
+        let ir = lambda::ir::Exprs::from_ast(&exprs, root_expr);
         tracing::info!("`{}`", source);
         tracing::info!("{}", tree.root_node());
         tracing::info!("{:?}", exprs.debug(root_expr));
@@ -261,7 +262,7 @@ impl LanguageServer for Backend {
             return Ok(None);
         };
 
-        let ty = type_of(&exprs, &mut types, root_expr);
+        let ty = type_of(&ir, &mut types, root_expr);
 
         let mut markdown = String::new();
 
@@ -295,10 +296,11 @@ impl LanguageServer for Backend {
         tracing::info!("Inlay hint for {}", params.text_document.uri);
         let src = format!("{source}");
         let (root_expr, exprs) = from_tree(tree, &src);
+        let ir = lambda::ir::Exprs::from_ast(&exprs, root_expr);
         let mut types = TypeEnv::default();
 
         // let root = tree.root_node();
-        _ = type_of(&exprs, &mut types, root_expr);
+        _ = type_of(&ir, &mut types, root_expr);
         let range = params.range;
         let range_start = to_point(range.start);
         let range_end = to_point(range.end);
