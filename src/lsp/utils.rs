@@ -21,6 +21,12 @@ impl<'a> NodeExt for Node<'a> {
 pub trait RopeExt {
     fn to_byte(&self, position: Position) -> usize;
     fn to_position(&self, offset: usize) -> Position;
+    fn to_lsp_range(&self, ts_range: tree_sitter::Range) -> Range {
+        Range {
+            start: self.to_position(ts_range.start_byte),
+            end: self.to_position(ts_range.end_byte),
+        }
+    }
     fn to_input_edit(&self, range: Range, text: &str) -> InputEdit;
 }
 

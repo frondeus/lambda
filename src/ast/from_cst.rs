@@ -120,10 +120,7 @@ mod tests {
     #[test_case("let x = true; false", _let("x", true, false))]
     #[test_case("let x = true;     \n\n\n false", _let("x", true, false) ; "With whitespace")]
     #[test_case("let g = a: a;         \ng\ntrue\n", 
-        call(
-            _let("g", def("a", "a"), "g"),
-            true
-        ) ;
+            _let("g", def("a", "a"), "g".call(true));
          "Whitespace 2")
     ]
     #[test_case("a: a", def("a", "a"))]

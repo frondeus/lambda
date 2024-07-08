@@ -10,21 +10,22 @@ use lambda::{
         queries::Queries,
         SyntaxTree,
     },
-    types::{type_of, TypeEnv},
+    diagnostics::Diagnostics,
+    types::TypeEnv,
 };
 use ropey::Rope;
 use tokio::sync::RwLock;
 use tower_lsp::{
     jsonrpc::Result,
     lsp_types::{
-        DidChangeConfigurationParams, DidChangeTextDocumentParams, DidChangeWatchedFilesParams,
-        DidChangeWorkspaceFoldersParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
-        DidSaveTextDocumentParams, GotoDefinitionParams, GotoDefinitionResponse, Hover,
-        HoverContents, HoverParams, HoverProviderCapability, InitializeParams, InitializeResult,
-        InitializedParams, InlayHint, InlayHintKind, InlayHintLabel, InlayHintParams, Location,
-        MarkedString, MessageType, OneOf, ServerCapabilities, TextDocumentContentChangeEvent,
-        TextDocumentSyncCapability, TextDocumentSyncKind, WorkspaceFoldersServerCapabilities,
-        WorkspaceServerCapabilities,
+        Diagnostic, DiagnosticSeverity, DidChangeConfigurationParams, DidChangeTextDocumentParams,
+        DidChangeWatchedFilesParams, DidChangeWorkspaceFoldersParams, DidCloseTextDocumentParams,
+        DidOpenTextDocumentParams, DidSaveTextDocumentParams, GotoDefinitionParams,
+        GotoDefinitionResponse, Hover, HoverContents, HoverParams, HoverProviderCapability,
+        InitializeParams, InitializeResult, InitializedParams, InlayHint, InlayHintKind,
+        InlayHintLabel, InlayHintParams, Location, MarkedString, MessageType, OneOf,
+        ServerCapabilities, TextDocumentContentChangeEvent, TextDocumentSyncCapability,
+        TextDocumentSyncKind, Url, WorkspaceFoldersServerCapabilities, WorkspaceServerCapabilities,
     },
     Client, LanguageServer,
 };
@@ -75,11 +76,9 @@ impl Backend {
         &self,
         file_path: PathBuf,
         changes: Vec<TextDocumentContentChangeEvent>,
-    ) {
+    ) -> Option<Arc<File>> {
         let mut state = self.state.write().await;
-        let Some(old_state) = state.forest.get_mut(&file_path) else {
-            return;
-        };
+        let old_state = state.forest.get_mut(&file_path)?;
 
         let mut source = old_state.source.clone();
         let mut tree = old_state.tree.clone();
@@ -112,11 +111,12 @@ impl Backend {
             source,
             tree: new_tree,
         });
+        Some(Arc::clone(old_state))
     }
 
-    async fn update_file(&self, file_path: PathBuf) {
+    async fn update_file(&self, file_path: PathBuf) -> Option<Arc<File>> {
         let Ok(source) = tokio::fs::read_to_string(&file_path).await else {
-            return;
+            return None;
         };
         let source = Rope::from_str(&source);
 
@@ -127,18 +127,52 @@ impl Backend {
                 let old_file = slot.get();
                 let old_tree = &old_file.tree;
                 let new_tree = get_tree_diff(&source.to_string(), old_tree);
-                slot.insert(Arc::new(File {
+                let arc = Arc::new(File {
                     tree: new_tree,
                     source,
-                }));
+                });
+                slot.insert(Arc::clone(&arc));
+                Some(arc)
             }
             Entry::Vacant(slot) => {
-                slot.insert(Arc::new(File {
+                let arc = Arc::new(File {
                     tree: get_tree(&source.to_string()),
                     source,
-                }));
+                });
+                slot.insert(Arc::clone(&arc));
+                Some(arc)
             }
+        }
+    }
+
+    async fn publish_diagnostics(&self, file: Option<Arc<File>>, uri: Url) {
+        let Some(file) = file else {
+            return;
         };
+        let File { tree, source } = &*file;
+        let src = format!("{source}");
+        let (root_expr, exprs) = from_tree(tree, &src);
+        let mut diagnostics = Diagnostics::default();
+        let ir = lambda::ir::Exprs::from_ast(&exprs, root_expr, &mut diagnostics);
+        _ = TypeEnv::infer(&ir, root_expr, &mut diagnostics);
+
+        let diagnostics = diagnostics
+            .iter()
+            .map(|i| Diagnostic {
+                range: source.to_lsp_range(i.span),
+                severity: Some(DiagnosticSeverity::ERROR),
+                code: None,
+                code_description: None,
+                source: Some("lambda".to_string()),
+                message: i.message.clone(),
+                related_information: None,
+                tags: None,
+                data: None,
+            })
+            .collect();
+        self.client
+            .publish_diagnostics(uri, diagnostics, None)
+            .await;
     }
 }
 
@@ -160,6 +194,16 @@ impl LanguageServer for Backend {
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
                 definition_provider: Some(OneOf::Left(true)),
                 inlay_hint_provider: Some(OneOf::Left(true)),
+                // diagnostic_provider: Some(DiagnosticServerCapabilities::Options(
+                //     DiagnosticOptions {
+                //         identifier: None,
+                //         inter_file_dependencies: false,
+                //         workspace_diagnostics: true,
+                //         work_done_progress_options: WorkDoneProgressOptions {
+                //             work_done_progress: None,
+                //         }
+                //     }
+                // )),
                 ..ServerCapabilities::default()
             },
             ..InitializeResult::default()
@@ -175,7 +219,9 @@ impl LanguageServer for Backend {
             return;
         };
         tracing::info!("Did open {:?}", file_path);
-        self.update_file(file_path).await;
+        let file = self.update_file(file_path).await;
+        self.publish_diagnostics(file, param.text_document.uri)
+            .await;
     }
 
     async fn did_change(&self, param: DidChangeTextDocumentParams) {
@@ -184,7 +230,11 @@ impl LanguageServer for Backend {
         };
         tracing::info!("Did change {:?}", file_path);
         // self.update_file(file_path).await;
-        self.update_file_with_changes(file_path, param.content_changes)
+        let file = self
+            .update_file_with_changes(file_path, param.content_changes)
+            .await;
+
+        self.publish_diagnostics(file, param.text_document.uri)
             .await;
     }
 
@@ -193,7 +243,9 @@ impl LanguageServer for Backend {
             return;
         };
         tracing::info!("Did save {:?}", file_path);
-        self.update_file(file_path).await;
+        let file = self.update_file(file_path).await;
+        self.publish_diagnostics(file, param.text_document.uri)
+            .await;
     }
 
     async fn did_close(&self, _: DidCloseTextDocumentParams) {
@@ -246,11 +298,11 @@ impl LanguageServer for Backend {
 
         let src = format!("{source}");
         let (root_expr, exprs) = from_tree(tree, &src);
-        let ir = lambda::ir::Exprs::from_ast(&exprs, root_expr);
+        let mut diagnostics = Diagnostics::default();
+        let ir = lambda::ir::Exprs::from_ast(&exprs, root_expr, &mut diagnostics);
         tracing::info!("`{}`", source);
         tracing::info!("{}", tree.root_node());
         tracing::info!("{:?}", exprs.debug(root_expr));
-        let mut types = TypeEnv::default();
 
         let root = tree.root_node();
         let node = root.named_descendant_for_point_range(point, point).unwrap();
@@ -262,19 +314,19 @@ impl LanguageServer for Backend {
             return Ok(None);
         };
 
-        let ty = type_of(&ir, &mut types, root_expr);
+        let (types, _ty) = TypeEnv::infer(&ir, root_expr, &mut diagnostics);
 
         let mut markdown = String::new();
 
-        match ty {
-            Ok(_) => {
-                let ty = types.type_of(node_expr_id).unwrap();
-                markdown += &format!("\n\n```\n{}\n```", ty.debug(&types));
-            }
-            Err(e) => {
-                markdown += &format!("\n\n{e}");
-            }
-        }
+        // match infer_result {
+        //     Ok((types, _)) => {
+        let ty = types.type_of(node_expr_id).unwrap();
+        markdown += &format!("\n\n```\n{}\n```", ty.debug(&types));
+        //     }
+        //     Err((_, e)) => {
+        //         markdown += &format!("\n\n{e}");
+        //     }
+        // }
 
         Ok(Some(Hover {
             contents: HoverContents::Scalar(MarkedString::from_markdown(markdown)),
@@ -296,11 +348,13 @@ impl LanguageServer for Backend {
         tracing::info!("Inlay hint for {}", params.text_document.uri);
         let src = format!("{source}");
         let (root_expr, exprs) = from_tree(tree, &src);
-        let ir = lambda::ir::Exprs::from_ast(&exprs, root_expr);
-        let mut types = TypeEnv::default();
+        let mut diagnostics = Diagnostics::default();
+        let ir = lambda::ir::Exprs::from_ast(&exprs, root_expr, &mut diagnostics);
+        // let mut types = TypeEnv::default();
 
         // let root = tree.root_node();
-        _ = type_of(&ir, &mut types, root_expr);
+        let (types, _) = TypeEnv::infer(&ir, root_expr, &mut diagnostics);
+
         let range = params.range;
         let range_start = to_point(range.start);
         let range_end = to_point(range.end);
@@ -360,7 +414,8 @@ impl LanguageServer for Backend {
         let src = format!("{source}");
         let (root_expr, exprs) = from_tree(tree, &src);
 
-        let ir = lambda::ir::Exprs::from_ast(&exprs, root_expr);
+        let mut diagnostics = Diagnostics::default();
+        let ir = lambda::ir::Exprs::from_ast(&exprs, root_expr, &mut diagnostics);
 
         let root = tree.root_node();
         let node = root.named_descendant_for_point_range(point, point).unwrap();
@@ -391,4 +446,30 @@ impl LanguageServer for Backend {
             range: def_range,
         })))
     }
+
+    // async fn diagnostic(
+    //     &self,
+    //     _params: DocumentDiagnosticParams,
+    // ) -> Result<DocumentDiagnosticReportResult> {
+    //     tracing::info!("TODO: Diagnostic");
+    //     Ok(DocumentDiagnosticReportResult::Report(
+    //         DocumentDiagnosticReport::Full(RelatedFullDocumentDiagnosticReport {
+    //             related_documents: None,
+    //             full_document_diagnostic_report: FullDocumentDiagnosticReport {
+    //                 result_id: None,
+    //                 items: vec![Diagnostic {
+    //                     range: Range::default(),
+    //                     severity: Some(DiagnosticSeverity::ERROR),
+    //                     code: None,
+    //                     code_description: None,
+    //                     source: Some("lambda".to_string()),
+    //                     message: "TODO".to_string(),
+    //                     related_information: None,
+    //                     tags: None,
+    //                     data: None,
+    //                 }],
+    //             },
+    //         }),
+    //     ))
+    // }
 }

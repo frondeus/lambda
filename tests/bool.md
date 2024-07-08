@@ -21,9 +21,7 @@ Bool(
 ```
 
 ```type
-Ok(
-    Bool,
-)
+Bool
 ```
 
 ```eval
@@ -55,9 +53,7 @@ Bool(
 ```
 
 ```type
-Ok(
-    Bool,
-)
+Bool
 ```
 
 ```eval

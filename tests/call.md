@@ -48,9 +48,7 @@ Let(
 ```
 
 ```type
-Ok(
-    Bool,
-)
+Bool
 ```
 
 ```eval
@@ -139,11 +137,9 @@ Let(
 ```
 
 ```type
-Ok(
-    Fn(
-        T3,
-        Bool,
-    ),
+Fn(
+    T3,
+    Bool,
 )
 ```
 

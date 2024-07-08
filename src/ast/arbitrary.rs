@@ -65,7 +65,7 @@ enum ExprKind {
 
 #[cfg(test)]
 mod tests {
-    use crate::{runtime::RunEnv, types::TypeEnv};
+    use crate::{diagnostics::Diagnostics, runtime::RunEnv, types::TypeEnv};
 
     use super::*;
 
@@ -74,14 +74,15 @@ mod tests {
         arbtest::arbtest(|u| {
             let mut exprs = Exprs::default();
             let root = arbitrary_expr_id(&mut exprs, u)?;
-            let mut types = TypeEnv::default();
             let mut rt = RunEnv::default();
-            let ir = crate::ir::Exprs::from_ast(&exprs, root);
+            let mut diagnostics = Diagnostics::default();
+            let ir = crate::ir::Exprs::from_ast(&exprs, root, &mut diagnostics);
 
-            let ty = crate::types::type_of(&ir, &mut types, root);
-            if ty.is_ok() {
-                crate::runtime::eval(&exprs, &mut rt, root);
+            _ = TypeEnv::infer(&ir, root, &mut diagnostics);
+            if diagnostics.has_errors() {
+                return Ok(());
             }
+            crate::runtime::eval(&exprs, &mut rt, root);
             Ok(())
         });
         // .budget_ms(5_000);

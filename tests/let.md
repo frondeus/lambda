@@ -35,9 +35,7 @@ Let(
 ```
 
 ```type
-Ok(
-    Bool,
-)
+Bool
 ```
 
 ```eval
@@ -88,9 +86,7 @@ Let(
 ```
 
 ```type
-Ok(
-    Bool,
-)
+Bool
 ```
 
 ```eval

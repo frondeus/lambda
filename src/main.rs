@@ -1,8 +1,9 @@
 use clap::{Parser, Subcommand};
 use lambda::{
     ast::from_cst::{from_tree, get_tree},
+    diagnostics::Diagnostics,
     runtime::eval,
-    types::type_of,
+    types::TypeEnv,
 };
 use lsp::Backend;
 use std::path::PathBuf;
@@ -67,31 +68,37 @@ async fn main() {
                 println!("{:#}", tree.root_node());
 
                 let (root, exprs) = from_tree(&tree, &source);
-                let ir = lambda::ir::Exprs::from_ast(&exprs, root);
-                let mut types = Default::default();
+                let mut diagnostics = Diagnostics::default();
+                let ir = lambda::ir::Exprs::from_ast(&exprs, root, &mut diagnostics);
 
                 println!("{:#?}", exprs.debug(root));
-                match type_of(&ir, &mut types, root) {
-                    Err(e) => {
-                        eprintln!("{e}");
-                        return;
-                    }
-                    Ok(o) => {
-                        println!(":: {:?}", o.debug(&types))
-                    }
-                }
+                let (types, ty) = TypeEnv::infer(&ir, root, &mut diagnostics);
+                // match TypeEnv::infer(&ir, root) {
+                //     Err((_, e)) => {
+                //         eprintln!("{e}");
+                //         return;
+                //     }
+                // Ok((types, o)) => {
+                println!(":: {:?}", ty.debug(&types))
+                //     }
+                // }
             }
         }
         Command::Run { source } => {
-            if let Some(source) = source {
-                let source = std::fs::read_to_string(source).unwrap();
+            if let Some(source_name) = source {
+                let source = std::fs::read_to_string(source_name).unwrap();
                 let tree = get_tree(&source);
                 let (root, exprs) = from_tree(&tree, &source);
-                let ir = lambda::ir::Exprs::from_ast(&exprs, root);
-                let mut types = Default::default();
+                let mut diagnostics = Diagnostics::default();
+                let ir = lambda::ir::Exprs::from_ast(&exprs, root, &mut diagnostics);
                 let mut runtime = Default::default();
-                if let Err(e) = type_of(&ir, &mut types, root) {
-                    eprintln!("{e}");
+                _ = TypeEnv::infer(&ir, root, &mut diagnostics);
+                if diagnostics.has_errors() {
+                    diagnostics.iter().for_each(|d| {
+                        d.to_report()
+                            .eprint(("test", ariadne::Source::from(source.clone())))
+                            .unwrap();
+                    });
                     return;
                 }
 
@@ -101,9 +108,3 @@ async fn main() {
         }
     }
 }
-
-#[cfg(test)]
-pub mod test_suite;
-
-#[cfg(test)]
-mod acceptance_tests;

@@ -7,7 +7,7 @@ pub mod builder;
 pub mod from_cst;
 pub mod queries;
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd, Default)]
 pub struct ExprId(pub usize);
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd, Default, Debug)]

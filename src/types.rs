@@ -1,7 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 use thiserror::Error;
 
-use crate::ast::{ExprId, InternId};
+use crate::ast::{ExprId, InternId, SyntaxNode};
+use crate::diagnostics::Diagnostics;
 use crate::ir::{Expr, Exprs, VarId};
 
 mod debug;
@@ -32,6 +33,7 @@ pub struct TypeEnv {
 #[derive(Eq, PartialEq, PartialOrd, Ord, Hash)]
 struct Con {
     left: TypeId,
+    left_node: ExprId,
     right: TypeId,
 }
 
@@ -41,16 +43,20 @@ struct Cons {
 }
 
 impl Cons {
-    fn push(&mut self, left: TypeId, right: TypeId) {
+    fn push(&mut self, left: TypeId, right: TypeId, left_node: ExprId) {
         if left == right {
             return;
         }
 
-        if self.cons.iter().any(|c| c == &Con { left, right }) {
+        if self.cons.iter().any(|c| c.left == left && c.right == right) {
             return;
         }
 
-        self.cons.push_back(Con { left, right });
+        self.cons.push_back(Con {
+            left,
+            right,
+            left_node,
+        });
     }
 
     fn pop(&mut self) -> Option<Con> {
@@ -73,26 +79,34 @@ pub enum TypeError {
     InfiniteType,
 }
 
-pub type Result<T, E = TypeError> = std::result::Result<T, E>;
+impl TypeEnv {
+    pub fn infer(e: &Exprs, root: ExprId, diagnostics: &mut Diagnostics) -> (Self, Type) {
+        let mut env = TypeEnv::default();
+        let id = type_of(e, &mut env, root, diagnostics);
+        (env, id)
+    }
+}
 
 /// Infers the type of an expression
-pub fn type_of(e: &Exprs, env: &mut TypeEnv, id: ExprId) -> Result<Type> {
-    let type_id = gather_cons(e, env, id)?;
-    let type_id = unify(env, type_id)?;
+fn type_of(e: &Exprs, env: &mut TypeEnv, id: ExprId, diagnostics: &mut Diagnostics) -> Type {
+    let type_id = gather_cons(e, env, id, diagnostics);
+    let type_id = unify(env, e, type_id, diagnostics);
 
-    Ok(env.get_type(type_id))
+    env.get_type(type_id)
 }
 
 /// First step of type inference - gathering constraints, and solving trivial types
-fn gather_cons(e: &Exprs, env: &mut TypeEnv, id: ExprId) -> Result<TypeId> {
-    Ok(match e.get(id) {
+fn gather_cons(e: &Exprs, env: &mut TypeEnv, id: ExprId, diagnostics: &mut Diagnostics) -> TypeId {
+    match e.get(id) {
         Expr::Bool { value: _, node: _ } => env.set_type_for_expr(id, Type::Bool),
         Expr::Var {
             name,
             id: var_id,
-            node: _,
+            node,
         } => {
-            let type_id = env.get_vars_type_id(e, *name, *var_id)?;
+            let type_id = env
+                .get_vars_type_id(e, diagnostics, *name, *var_id, node)
+                .unwrap_or_else(|| env.new_type_var_id());
             env.set_type_id_for_expr(id, type_id)
         }
         Expr::VarDef { .. } => unreachable!(),
@@ -105,34 +119,41 @@ fn gather_cons(e: &Exprs, env: &mut TypeEnv, id: ExprId) -> Result<TypeId> {
             let name_var = e.get(*name).unwrap_var_def();
             env.set_var(name_var, var);
             env.set_type_id_for_expr(*name, var);
-            let ret = gather_cons(e, env, *body)?;
+            let ret = gather_cons(e, env, *body, diagnostics);
             env.set_type_for_expr(id, Type::Function(var, ret))
         }
         Expr::Call { func, arg, node: _ } => {
-            let func_type_id = gather_cons(e, env, *func)?;
+            let func_node = e.get(*func).node();
+            let func_type_id = gather_cons(e, env, *func, diagnostics);
             let func_type = env.get_type(func_type_id);
 
-            let arg_id = gather_cons(e, env, *arg)?;
+            let arg_id = gather_cons(e, env, *arg, diagnostics);
             let (from, to) = match func_type.clone() {
                 Type::Var(_) => {
                     let some_to = env.new_type_var_id();
                     let has_to_be_function = env.add_type(Type::Function(arg_id, some_to));
 
-                    env.constraints.push(func_type_id, has_to_be_function);
+                    env.constraints
+                        .push(func_type_id, has_to_be_function, *func);
 
                     (arg_id, some_to)
                 }
                 poly @ Type::ForAll(_, _) => instantiate_poly(env, poly),
                 Type::Function(from, to) => (from, to),
                 Type::Bool => {
-                    return Err(TypeError::UnifyError {
-                        left: "Fn(?, ?)".to_string(),
-                        right: format!("{:?}", func_type.debug(env)),
-                    });
+                    diagnostics.push(
+                        &func_node,
+                        TypeError::UnifyError {
+                            left: "Fn(?, ?)".to_string(),
+                            right: format!("{:?}", func_type.debug(env)),
+                        },
+                    );
+                    let some_to = env.new_type_var_id();
+                    (arg_id, some_to)
                 }
             };
 
-            env.constraints.push(from, arg_id);
+            env.constraints.push(from, arg_id, *func);
             env.set_type_id_for_expr(id, to)
         }
         Expr::Let {
@@ -144,7 +165,7 @@ fn gather_cons(e: &Exprs, env: &mut TypeEnv, id: ExprId) -> Result<TypeId> {
             let name_var = e.get(*name).unwrap_var_def();
             env.new_var(name_var);
 
-            let value = gather_cons(e, env, *value_id)?;
+            let value = gather_cons(e, env, *value_id, diagnostics);
 
             let value_type = env.get_type(value);
             let value = match value_type {
@@ -169,10 +190,10 @@ fn gather_cons(e: &Exprs, env: &mut TypeEnv, id: ExprId) -> Result<TypeId> {
             env.set_type_id_for_expr(*name, value);
             env.set_var(name_var, value);
 
-            let then = gather_cons(e, env, *then)?;
+            let then = gather_cons(e, env, *then, diagnostics);
             env.set_type_id_for_expr(id, then)
         }
-    })
+    }
 }
 
 /// For let polymorphism, we want to see if the function takes generic argument.
@@ -211,31 +232,61 @@ fn collect_vars(env: &TypeEnv, id: TypeId) -> Vec<TypeId> {
 }
 
 /// Second step of type inference.
-fn unify(env: &mut TypeEnv, mut root_id: TypeId) -> Result<TypeId> {
+fn unify(
+    env: &mut TypeEnv,
+    e: &Exprs,
+    mut root_id: TypeId,
+    diagnostics: &mut Diagnostics,
+) -> TypeId {
     let mut cons = std::mem::take(&mut env.constraints);
-    while let Some(Con { left, right }) = cons.pop() {
+    while let Some(Con {
+        left,
+        right,
+        left_node,
+    }) = cons.pop()
+    {
         if left == right {
             continue;
         }
         let l = env.get_type(left);
         let r = env.get_type(right);
+        let left_n = e.get(left_node).node();
 
         match (l, r) {
-            (Type::Var(_), _r) => replace_all(env, left, right, &mut cons, &mut root_id)?,
-            (_l, Type::Var(_)) => replace_all(env, right, left, &mut cons, &mut root_id)?,
+            (Type::Var(_), _r) => replace_all(
+                env,
+                left,
+                &left_n,
+                right,
+                &mut cons,
+                &mut root_id,
+                diagnostics,
+            ),
+            (_l, Type::Var(_)) => replace_all(
+                env,
+                right,
+                &left_n,
+                left,
+                &mut cons,
+                &mut root_id,
+                diagnostics,
+            ),
             (Type::Function(fr_a, to_a), Type::Function(fr_b, to_b)) => {
-                cons.push(fr_a, fr_b);
-                cons.push(to_a, to_b);
+                cons.push(fr_a, fr_b, left_node);
+                cons.push(to_a, to_b, left_node);
             }
             (l, r) => {
-                return Err(TypeError::UnifyError {
-                    left: format!("{:?}", l.debug(env)),
-                    right: format!("{:?}", r.debug(env)),
-                })
+                diagnostics.push(
+                    &left_n,
+                    TypeError::UnifyError {
+                        left: format!("{:?}", l.debug(env)),
+                        right: format!("{:?}", r.debug(env)),
+                    },
+                );
             }
         }
     }
-    Ok(root_id)
+    root_id
 }
 
 /// Whenever a polymorphic (via. let polymorphism) function is called, we want to instantiate it into separate function
@@ -277,6 +328,7 @@ fn instantiate(
 
         for c in cons.cons.iter() {
             let maybe_new_cons = Con {
+                left_node: c.left_node,
                 left: replace(env, var, c.left, new_var_id),
                 right: replace(env, var, c.right, new_var_id),
             };
@@ -295,12 +347,15 @@ fn instantiate(
 fn replace_all(
     env: &mut TypeEnv,
     all_occurrences: TypeId,
+    all_occurrences_node: &Option<SyntaxNode>,
     with: TypeId,
     cons: &mut Cons,
     root_id: &mut TypeId,
-) -> Result<()> {
+    diagnostics: &mut Diagnostics,
+) {
     if occurs(env, all_occurrences, with) {
-        return Err(TypeError::InfiniteType);
+        diagnostics.push(all_occurrences_node, TypeError::InfiniteType);
+        return;
     }
 
     for c in cons.cons.iter_mut() {
@@ -316,7 +371,6 @@ fn replace_all(
     env.exprs = exprs;
 
     *root_id = replace(env, all_occurrences, *root_id, with);
-    Ok(())
 }
 
 fn occurs(env: &mut TypeEnv, ty: TypeId, inside: TypeId) -> bool {
@@ -347,22 +401,29 @@ fn replace(env: &mut TypeEnv, all_occurrences: TypeId, inside: TypeId, with: Typ
 }
 
 impl TypeEnv {
-    fn get_vars_type_id(&self, e: &Exprs, name: InternId, id: Option<VarId>) -> Result<TypeId> {
-        let Some(id) = id else {
-            return Err(TypeError::UndefinedVariable {
-                name: e.get_str(name).into(),
-            });
-        };
+    fn get_vars_type_id(
+        &mut self,
+        e: &Exprs,
+        diagnostics: &mut Diagnostics,
+        name: InternId,
+        id: Option<VarId>,
+        node: &Option<SyntaxNode>,
+    ) -> Option<TypeId> {
+        let id = id?;
 
-        let id = self.vars.get(&id).ok_or_else(|| {
-            let name = e.get_str(name).into();
-            TypeError::UndefinedVariable { name }
-        })?;
-
-        id.ok_or_else(|| {
-            let name = e.get_str(name).into();
-            TypeError::Uninitialized { name }
-        })
+        match self.vars.get(&id) {
+            None => {
+                let name = e.get_str(name).into();
+                diagnostics.push(node, TypeError::UndefinedVariable { name });
+                None
+            }
+            Some(None) => {
+                let name = e.get_str(name).into();
+                diagnostics.push(node, TypeError::Uninitialized { name });
+                None
+            }
+            Some(Some(ty)) => Some(*ty),
+        }
     }
 
     pub fn get_type(&self, id: TypeId) -> Type {
@@ -452,7 +513,10 @@ impl TypeEnv {
 
 #[cfg(test)]
 mod tests {
-    use crate::ast::from_cst::{from_tree, get_tree};
+    use crate::{
+        ast::from_cst::{from_tree, get_tree},
+        diagnostics::Diagnostics,
+    };
 
     use super::*;
 
@@ -461,11 +525,12 @@ mod tests {
         test_runner::test_snapshots("tests/", "type", |input, _deps| {
             let tree = get_tree(input);
             let (r, exprs) = from_tree(&tree, input);
-            let ir = Exprs::from_ast(&exprs, r);
+            let mut diagnostics = Diagnostics::default();
+            let ir = Exprs::from_ast(&exprs, r, &mut diagnostics);
             let mut types = TypeEnv::default();
-            let ty = type_of(&ir, &mut types, r);
-            let ty = ty.as_ref().map(|t| t.debug(&types));
-            format!("{ty:#?}")
+            let ty = type_of(&ir, &mut types, r, &mut diagnostics);
+            // let ty = ty.as_ref().map(|t| t.debug(&types));
+            format!("{:#?}", ty.debug(&types))
         })
     }
 

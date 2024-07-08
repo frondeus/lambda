@@ -2,7 +2,10 @@ use std::collections::{BTreeMap, VecDeque};
 
 use tree_sitter::Node as SyntaxNode;
 
-use crate::ast::{ExprId, InternId};
+use crate::{
+    ast::{ExprId, InternId},
+    diagnostics::Diagnostics,
+};
 
 pub mod queries;
 
@@ -71,8 +74,12 @@ pub struct Variable {
 }
 
 impl<'a> Exprs<'a> {
-    pub fn from_ast(e: &'a crate::ast::Exprs<'a>, root: ExprId) -> Exprs<'a> {
-        let mut ir = Exprs {
+    pub fn from_ast(
+        e: &'a crate::ast::Exprs<'a>,
+        root: ExprId,
+        diagnostics: &mut Diagnostics,
+    ) -> Exprs<'a> {
+        let ir = Exprs {
             e: e.e.iter().map(Expr::from_ast).collect(),
             i_to_s: e.i_to_s.clone(),
             s_to_i: e.s_to_i.clone(),
@@ -80,7 +87,7 @@ impl<'a> Exprs<'a> {
             vars: vec![],
         };
 
-        fix_scope(&mut ir, root);
+        let ir = fix_scope(ir, root, diagnostics);
 
         ir
     }
@@ -121,7 +128,14 @@ enum StackItem {
     ScopePop,
 }
 
-fn fix_scope(exprs: &mut Exprs, e: ExprId) {
+fn fix_scope<'a>(exprs: Exprs<'a>, e: ExprId, diagnostics: &mut Diagnostics) -> Exprs<'a> {
+    let Exprs {
+        e: mut exprs,
+        i_to_s,
+        s_to_i,
+        intern_counter,
+        mut vars,
+    } = exprs;
     let mut var_counter = VarId(0);
     let mut scopes: Vec<Scope> = vec![];
     let mut stack: VecDeque<StackItem> = {
@@ -129,7 +143,6 @@ fn fix_scope(exprs: &mut Exprs, e: ExprId) {
         v.push_front(StackItem::Expr(e));
         v
     };
-    let mut vars: Vec<Variable> = vec![];
     while let Some(e) = stack.pop_back() {
         let e = match e {
             StackItem::Expr(e) => e,
@@ -139,7 +152,7 @@ fn fix_scope(exprs: &mut Exprs, e: ExprId) {
             }
         };
 
-        match exprs.get_mut(e) {
+        match &mut exprs[e.0] {
             Expr::Def { arg, body, node: _ } => {
                 stack.push_back(StackItem::ScopePop);
                 stack.push_back(StackItem::Expr(*body));
@@ -147,10 +160,16 @@ fn fix_scope(exprs: &mut Exprs, e: ExprId) {
                 scopes.push(Scope::default());
             }
             Expr::Bool { value: _, node: _ } => (),
-            Expr::Var { name, id, node: _ } => {
+            Expr::Var { name, id, node } => {
                 let mut scopes = scopes.iter().rev();
 
                 let var = scopes.find_map(|s| s.vars.get(name).copied());
+                if var.is_none() {
+                    diagnostics.push(
+                        node,
+                        format!("Variable `{}` is not defined anywhere", i_to_s[name]),
+                    );
+                }
                 *id = var;
             }
             Expr::VarDef { name, id, node: _ } => {
@@ -181,7 +200,13 @@ fn fix_scope(exprs: &mut Exprs, e: ExprId) {
             }
         }
     }
-    exprs.vars = vars;
+    Exprs {
+        e: exprs,
+        i_to_s,
+        s_to_i,
+        intern_counter,
+        vars,
+    }
 }
 
 impl<'a> Expr<'a> {
@@ -280,7 +305,8 @@ mod tests {
         test_runner::test_snapshots("tests/", "ir", |input, _deps| {
             let tree = get_tree(input);
             let (r, exprs) = from_tree(&tree, input);
-            let ir = Exprs::from_ast(&exprs, r);
+            let mut diagnostics = Diagnostics::default();
+            let ir = Exprs::from_ast(&exprs, r, &mut diagnostics);
             format!("{:#?}", ir.debug(r))
         })
     }
