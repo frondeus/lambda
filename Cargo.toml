@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [workspace]
-members = [".", "./cst"]
+members = [".", "./cst", "./test-runner", "./xtask"]
 
 [dependencies]
 anyhow = "1.0.86"
@@ -22,3 +22,4 @@ tree-sitter-lambda = { path = "./cst" }
 
 [dev-dependencies]
 arbtest = "0.3.1"
+test-runner = { path = "./test-runner" }

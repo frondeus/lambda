@@ -1,6 +1,11 @@
 /// <reference types="tree-sitter-cli/dsl" />
 // @ts-check
 
+const PREC = {
+  "call": 2,
+  "let": 1,
+}
+
 module.exports = grammar({
   name: "lambda",
 
@@ -23,21 +28,17 @@ module.exports = grammar({
     bool: $ => choice("true", "false"),
     ident: $ => /[a-zA-Z_0-9]+/,
     def: $ => seq( field("arg", $.ident), ":", field("body", $._expr) ),
-    call: $ => prec.left(seq(
+    call: $ => prec.left(PREC.call, seq(
       field("func", $._expr), 
       field("arg", $._expr), 
     )),
-    "let": $ => seq(
+    "let": $ => prec.right(PREC.let, seq(
       "let",
       field("key", $.ident),
       "=",
       field("value", $._expr),
       ";",
       field("in", $._expr)
-    )
-  },
-  conflicts: $ => [
-    [$.def, $.call],
-    [$.call, $.let]
-  ]
+    ))
+  }
 });

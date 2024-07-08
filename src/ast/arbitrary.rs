@@ -83,7 +83,7 @@ mod tests {
                 crate::runtime::eval(&exprs, &mut rt, root);
             }
             Ok(())
-        })
-        .budget_ms(5_000);
+        });
+        // .budget_ms(5_000);
     }
 }

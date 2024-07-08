@@ -87,6 +87,23 @@ mod tests {
 
     use super::*;
 
+    #[test]
+    fn cst_tests() -> test_runner::Result {
+        test_runner::test_snapshots("tests/", "cst", |input, _deps| {
+            let tree = get_tree(input);
+            format!("{:#}", tree.root_node())
+        })
+    }
+
+    #[test]
+    fn ast_tests() -> test_runner::Result {
+        test_runner::test_snapshots("tests/", "ast", |input, _deps| {
+            let tree = get_tree(input);
+            let (r, exprs) = from_tree(&tree, input);
+            format!("{:#?}", exprs.debug(r))
+        })
+    }
+
     macro_rules! assert_expected {
         ($e: expr, $a: expr) => {{
             let mut exprs = Exprs::default();

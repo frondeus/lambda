@@ -46,7 +46,11 @@ pub enum Expr<'a> {
 impl<'a> Expr<'a> {
     pub fn unwrap_var_def(self) -> VarId {
         match self {
-            Expr::VarDef { name: _, id, node: _ } => id,
+            Expr::VarDef {
+                name: _,
+                id,
+                node: _,
+            } => id,
             e => unreachable!("{:?} is not VarDef", e),
         }
     }
@@ -262,5 +266,22 @@ impl<'a> std::fmt::Debug for DebugExpr<'a> {
                 .field(&self.ex.debug(*then))
                 .finish(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::ast::from_cst::{from_tree, get_tree};
+
+    use super::*;
+
+    #[test]
+    fn ir_tests() -> test_runner::Result {
+        test_runner::test_snapshots("tests/", "ir", |input, _deps| {
+            let tree = get_tree(input);
+            let (r, exprs) = from_tree(&tree, input);
+            let ir = Exprs::from_ast(&exprs, r);
+            format!("{:#?}", ir.debug(r))
+        })
     }
 }

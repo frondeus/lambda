@@ -452,7 +452,22 @@ impl TypeEnv {
 
 #[cfg(test)]
 mod tests {
+    use crate::ast::from_cst::{from_tree, get_tree};
+
     use super::*;
+
+    #[test]
+    fn types_tests() -> test_runner::Result {
+        test_runner::test_snapshots("tests/", "type", |input, _deps| {
+            let tree = get_tree(input);
+            let (r, exprs) = from_tree(&tree, input);
+            let ir = Exprs::from_ast(&exprs, r);
+            let mut types = TypeEnv::default();
+            let ty = type_of(&ir, &mut types, r);
+            let ty = ty.as_ref().map(|t| t.debug(&types));
+            format!("{ty:#?}")
+        })
+    }
 
     mod instantiate_tests {
         use super::*;

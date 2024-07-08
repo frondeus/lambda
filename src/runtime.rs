@@ -128,3 +128,29 @@ pub fn eval(e: &Exprs, env: &mut RunEnv, id: ExprId) -> Value {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::ast::from_cst::{from_tree, get_tree};
+    use crate::ir::Exprs;
+    use crate::types::{type_of, TypeEnv};
+
+    use super::*;
+
+    #[test]
+    fn eval_tests() -> test_runner::Result {
+        test_runner::test_snapshots("tests/", "eval", |input, _deps| {
+            let tree = get_tree(input);
+            let (r, exprs) = from_tree(&tree, input);
+            let ir = Exprs::from_ast(&exprs, r);
+            let mut types = TypeEnv::default();
+            let ty = type_of(&ir, &mut types, r);
+            if let Err(_e) = ty {
+                return "<No eval, errors found>".into();
+            }
+            let mut env = RunEnv::default();
+            let res = eval(&exprs, &mut env, r);
+            format!("{res:#?}")
+        })
+    }
+}
