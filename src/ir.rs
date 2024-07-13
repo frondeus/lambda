@@ -27,19 +27,19 @@ pub enum Expr<'a> {
         node: Option<SyntaxNode<'a>>,
     },
     Def {
-        arg: ExprId,
-        body: ExprId,
+        arg: Option<ExprId>,
+        body: Option<ExprId>,
         node: Option<SyntaxNode<'a>>,
     },
     Call {
-        func: ExprId,
-        arg: ExprId,
+        func: Option<ExprId>,
+        arg: Option<ExprId>,
         node: Option<SyntaxNode<'a>>,
     },
     Let {
-        name: ExprId,
-        value: ExprId,
-        body: ExprId,
+        name: Option<ExprId>,
+        value: Option<ExprId>,
+        body: Option<ExprId>,
         node: Option<SyntaxNode<'a>>,
     },
 }
@@ -110,8 +110,9 @@ impl<'a> Exprs<'a> {
         self.e.iter().enumerate().map(|(id, e)| (ExprId(id), e))
     }
 
-    pub fn debug(&self, root: ExprId) -> DebugExpr {
-        self.get(root).debug(self)
+    pub fn debug(&self, root: Option<ExprId>) -> Option<DebugExpr> {
+        let root = root?;
+        Some(self.get(root).debug(self))
     }
 }
 
@@ -122,7 +123,7 @@ struct Scope {
 
 #[derive(Clone, Copy, Debug)]
 enum StackItem {
-    Expr(ExprId),
+    Expr(Option<ExprId>),
     ScopePop,
 }
 
@@ -138,12 +139,13 @@ fn fix_scope<'a>(exprs: Exprs<'a>, e: ExprId, diagnostics: &mut Diagnostics) -> 
     let mut scopes: Vec<Scope> = vec![];
     let mut stack: VecDeque<StackItem> = {
         let mut v: VecDeque<_> = Default::default();
-        v.push_front(StackItem::Expr(e));
+        v.push_front(StackItem::Expr(Some(e)));
         v
     };
     while let Some(e) = stack.pop_back() {
         let e = match e {
-            StackItem::Expr(e) => e,
+            StackItem::Expr(Some(e)) => e,
+            StackItem::Expr(None) => continue,
             StackItem::ScopePop => {
                 scopes.pop();
                 continue;
@@ -311,6 +313,7 @@ impl<'a> std::fmt::Debug for DebugExpr<'a> {
     }
 }
 
+#[allow(clippy::expect_used)]
 #[cfg(test)]
 mod tests {
     use crate::ast::from_cst::{from_tree, get_tree};
@@ -323,7 +326,7 @@ mod tests {
             let tree = get_tree(input);
             let (r, exprs) = from_tree(&tree, input, "test");
             let mut diagnostics = Diagnostics::default();
-            let ir = Exprs::from_ast(&exprs, r, &mut diagnostics);
+            let ir = Exprs::from_ast(&exprs, r.expect("Root node"), &mut diagnostics);
             format!("{:#?}", ir.debug(r))
         })
     }

@@ -1,12 +1,12 @@
 use super::*;
 
 pub trait BuilderFn<'a> {
-    fn build(self, exprs: &mut Exprs<'a>) -> Expr<'a>;
-    fn build_with_node(self, exprs: &mut Exprs<'a>, node: SyntaxNode<'a>) -> Expr<'a>
+    fn build(self, exprs: &mut Exprs<'a>) -> Option<Expr<'a>>;
+    fn build_with_node(self, exprs: &mut Exprs<'a>, node: SyntaxNode<'a>) -> Option<Expr<'a>>
     where
         Self: Sized,
     {
-        match self.build(exprs) {
+        Some(match self.build(exprs)? {
             Expr::Bool { value: b, node: _ } => Expr::Bool {
                 value: b,
                 node: Some(node),
@@ -44,18 +44,18 @@ pub trait BuilderFn<'a> {
                 arg,
                 node: Some(node),
             },
-        }
+        })
     }
 
-    fn dependency(self, exprs: &mut Exprs<'a>) -> ExprId
+    fn dependency(self, exprs: &mut Exprs<'a>) -> Option<ExprId>
     where
         Self: Sized,
     {
-        let ast = self.build(exprs);
-        exprs.push(ast)
+        let ast = self.build(exprs)?;
+        Some(exprs.push(ast))
     }
 
-    fn root(self) -> (ExprId, Exprs<'a>)
+    fn root(self) -> (Option<ExprId>, Exprs<'a>)
     where
         Self: Sized,
     {
@@ -67,22 +67,24 @@ pub trait BuilderFn<'a> {
 
 impl<'a, F> BuilderFn<'a> for F
 where
-    F: FnOnce(&mut Exprs<'a>) -> Expr<'a>,
+    F: FnOnce(&mut Exprs<'a>) -> Option<Expr<'a>>,
 {
-    fn build(self, exprs: &mut Exprs<'a>) -> Expr<'a> {
+    fn build(self, exprs: &mut Exprs<'a>) -> Option<Expr<'a>> {
         (self)(exprs)
     }
 }
 
 pub fn atom(ex: Expr) -> impl BuilderFn {
-    move |_e: &mut Exprs| ex
+    move |_e: &mut Exprs| Some(ex)
 }
 
 pub fn var<'t>(name: impl ToString) -> impl BuilderFn<'t> {
     let name = name.to_string();
-    move |e: &mut Exprs| Expr::Var {
-        name: e.push_str(name),
-        node: None,
+    move |e: &mut Exprs| {
+        Some(Expr::Var {
+            name: e.push_str(name),
+            node: None,
+        })
     }
 }
 
@@ -95,17 +97,21 @@ pub fn boolean<'t>(b: bool) -> impl BuilderFn<'t> {
 
 fn var_def<'t>(arg: impl ToString) -> impl BuilderFn<'t> {
     let arg = arg.to_string();
-    move |e: &mut Exprs<'t>| Expr::VarDef {
-        name: e.push_str(arg),
-        node: None,
+    move |e: &mut Exprs<'t>| {
+        Some(Expr::VarDef {
+            name: e.push_str(arg),
+            node: None,
+        })
     }
 }
 
 pub fn def<'t>(arg: impl VarDefLike<'t>, ret: impl BuilderFn<'t>) -> impl BuilderFn<'t> {
-    move |e: &mut Exprs<'t>| Expr::Def {
-        arg: arg.var_def_dep(e),
-        body: ret.dependency(e),
-        node: None,
+    move |e: &mut Exprs<'t>| {
+        Some(Expr::Def {
+            arg: arg.var_def_dep(e),
+            body: ret.dependency(e),
+            node: None,
+        })
     }
 }
 
@@ -114,7 +120,7 @@ pub struct VarDef<'t> {
     pub node: Option<SyntaxNode<'t>>,
 }
 impl<'t> BuilderFn<'t> for VarDef<'t> {
-    fn build(self, exprs: &mut Exprs<'t>) -> Expr<'t> {
+    fn build(self, exprs: &mut Exprs<'t>) -> Option<Expr<'t>> {
         match self.node {
             None => var_def(self.arg).build(exprs),
             Some(node) => var_def(self.arg).build_with_node(exprs, node),
@@ -123,16 +129,16 @@ impl<'t> BuilderFn<'t> for VarDef<'t> {
 }
 
 pub trait VarDefLike<'t>: BuilderFn<'t> + Sized {
-    fn build_var_def(self, exprs: &mut Exprs<'t>) -> Expr<'t> {
-        match self.build(exprs) {
+    fn build_var_def(self, exprs: &mut Exprs<'t>) -> Option<Expr<'t>> {
+        Some(match self.build(exprs)? {
             Expr::Var { name, node } => Expr::VarDef { name, node },
             Expr::VarDef { name, node } => Expr::VarDef { name, node },
             e => unreachable!("{:?} is not Var", e),
-        }
+        })
     }
-    fn var_def_dep(self, expr: &mut Exprs<'t>) -> ExprId {
-        let e = self.build_var_def(expr);
-        expr.push(e)
+    fn var_def_dep(self, expr: &mut Exprs<'t>) -> Option<ExprId> {
+        let e = self.build_var_def(expr)?;
+        Some(expr.push(e))
     }
 }
 
@@ -144,34 +150,38 @@ pub fn _let<'t>(
     value: impl BuilderFn<'t>,
     then: impl BuilderFn<'t>,
 ) -> impl BuilderFn<'t> {
-    move |e: &mut Exprs<'t>| Expr::Let {
-        name: name.var_def_dep(e),
-        value: value.dependency(e),
-        body: then.dependency(e),
-        node: None,
+    move |e: &mut Exprs<'t>| {
+        Some(Expr::Let {
+            name: name.var_def_dep(e),
+            value: value.dependency(e),
+            body: then.dependency(e),
+            node: None,
+        })
     }
 }
 
 pub fn call<'t>(fun: impl BuilderFn<'t>, arg: impl BuilderFn<'t>) -> impl BuilderFn<'t> {
-    move |e: &mut Exprs<'t>| Expr::Call {
-        func: fun.dependency(e),
-        arg: arg.dependency(e),
-        node: None,
+    move |e: &mut Exprs<'t>| {
+        Some(Expr::Call {
+            func: fun.dependency(e),
+            arg: arg.dependency(e),
+            node: None,
+        })
     }
 }
 
 // Syntax Sugar
 impl<'t> BuilderFn<'t> for bool {
-    fn build(self, _: &mut Exprs<'t>) -> Expr<'t> {
-        Expr::Bool {
+    fn build(self, _: &mut Exprs<'t>) -> Option<Expr<'t>> {
+        Some(Expr::Bool {
             value: self,
             node: None,
-        }
+        })
     }
 }
 
 impl<'t> BuilderFn<'t> for &'t str {
-    fn build(self, e: &mut Exprs<'t>) -> Expr<'t> {
+    fn build(self, e: &mut Exprs<'t>) -> Option<Expr<'t>> {
         var(self.to_string()).build(e)
     }
 }

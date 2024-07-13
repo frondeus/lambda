@@ -33,7 +33,7 @@ pub struct TypeEnv {
 #[derive(Eq, PartialEq, PartialOrd, Ord, Hash)]
 struct Con {
     left: TypeId,
-    left_node: ExprId,
+    left_node: Option<ExprId>,
     right: TypeId,
 }
 
@@ -43,7 +43,7 @@ struct Cons {
 }
 
 impl Cons {
-    fn push(&mut self, left: TypeId, right: TypeId, left_node: ExprId) {
+    fn push(&mut self, left: TypeId, right: TypeId, left_node: Option<ExprId>) {
         if left == right {
             return;
         }
@@ -95,6 +95,18 @@ fn type_of(e: &Exprs, env: &mut TypeEnv, id: ExprId, diagnostics: &mut Diagnosti
     env.get_type(type_id)
 }
 
+fn maybe_gather_cons(
+    e: &Exprs,
+    env: &mut TypeEnv,
+    id: &Option<ExprId>,
+    diagnostics: &mut Diagnostics,
+) -> TypeId {
+    match id {
+        Some(id) => gather_cons(e, env, *id, diagnostics),
+        None => env.new_type_var_id(),
+    }
+}
+
 /// First step of type inference - gathering constraints, and solving trivial types
 fn gather_cons(e: &Exprs, env: &mut TypeEnv, id: ExprId, diagnostics: &mut Diagnostics) -> TypeId {
     match e.get(id) {
@@ -116,18 +128,20 @@ fn gather_cons(e: &Exprs, env: &mut TypeEnv, id: ExprId, diagnostics: &mut Diagn
             node: _,
         } => {
             let var = env.new_type_var_id();
-            let name_var = e.get(*name).unwrap_var_def();
-            env.set_var(name_var, var);
-            env.set_type_id_for_expr(*name, var);
-            let ret = gather_cons(e, env, *body, diagnostics);
+            let name_var = name.map(|name| e.get(name).unwrap_var_def());
+            if let Some(name_var) = name_var {
+                env.set_var(name_var, var);
+            }
+            env.maybe_set_type_id_for_expr(*name, var);
+            let ret = maybe_gather_cons(e, env, body, diagnostics);
             env.set_type_for_expr(id, Type::Function(var, ret))
         }
         Expr::Call { func, arg, node: _ } => {
-            let func_node = e.get(*func).node();
-            let func_type_id = gather_cons(e, env, *func, diagnostics);
+            let func_node = func.and_then(|func| e.get(func).node());
+            let func_type_id = maybe_gather_cons(e, env, func, diagnostics);
             let func_type = env.get_type(func_type_id);
 
-            let arg_id = gather_cons(e, env, *arg, diagnostics);
+            let arg_id = maybe_gather_cons(e, env, arg, diagnostics);
             let (from, to) = match func_type.clone() {
                 Type::Var(_) => {
                     let some_to = env.new_type_var_id();
@@ -162,10 +176,12 @@ fn gather_cons(e: &Exprs, env: &mut TypeEnv, id: ExprId, diagnostics: &mut Diagn
             body: then,
             node: _,
         } => {
-            let name_var = e.get(*name).unwrap_var_def();
-            env.new_var(name_var);
+            let name_var = name.map(|name| e.get(name).unwrap_var_def());
+            if let Some(name_var) = name_var {
+                env.new_var(name_var);
+            }
 
-            let value = gather_cons(e, env, *value_id, diagnostics);
+            let value = maybe_gather_cons(e, env, value_id, diagnostics);
 
             let value_type = env.get_type(value);
             let value = match value_type {
@@ -178,7 +194,7 @@ fn gather_cons(e: &Exprs, env: &mut TypeEnv, id: ExprId, diagnostics: &mut Diagn
                     if poly_var.is_empty() {
                         value
                     } else {
-                        env.set_type_for_expr(
+                        env.maybe_set_type_for_expr(
                             *value_id,
                             Type::ForAll(poly_var.into_iter().collect(), value),
                         )
@@ -187,10 +203,12 @@ fn gather_cons(e: &Exprs, env: &mut TypeEnv, id: ExprId, diagnostics: &mut Diagn
                 _ => value,
             };
 
-            env.set_type_id_for_expr(*name, value);
-            env.set_var(name_var, value);
+            env.maybe_set_type_id_for_expr(*name, value);
+            if let Some(name_var) = name_var {
+                env.set_var(name_var, value);
+            }
 
-            let then = gather_cons(e, env, *then, diagnostics);
+            let then = maybe_gather_cons(e, env, then, diagnostics);
             env.set_type_id_for_expr(id, then)
         }
     }
@@ -250,7 +268,7 @@ fn unify(
         }
         let l = env.get_type(left);
         let r = env.get_type(right);
-        let left_n = e.get(left_node).node();
+        let left_n = left_node.and_then(|left_node| e.get(left_node).node());
 
         match (l, r) {
             (Type::Var(_), _r) => replace_all(
@@ -456,10 +474,23 @@ impl TypeEnv {
         id
     }
 
+    fn maybe_set_type_id_for_expr(&mut self, id: Option<ExprId>, type_id: TypeId) -> TypeId {
+        id.map(|id| self.set_type_id_for_expr(id, type_id))
+            .unwrap_or(type_id)
+    }
+
     fn set_type_id_for_expr(&mut self, id: ExprId, type_id: TypeId) -> TypeId {
         self.exprs.insert(id, type_id);
         type_id
     }
+
+    fn maybe_set_type_for_expr(&mut self, id: Option<ExprId>, ty: Type) -> TypeId {
+        match id {
+            Some(id) => self.set_type_for_expr(id, ty),
+            None => self.add_type(ty),
+        }
+    }
+
     fn set_type_for_expr(&mut self, id: ExprId, ty: Type) -> TypeId {
         let type_id = self.add_type(ty);
         self.set_type_id_for_expr(id, type_id)
@@ -511,6 +542,7 @@ impl TypeEnv {
     }
 }
 
+#[allow(clippy::expect_used)]
 #[cfg(test)]
 mod tests {
     use crate::{
@@ -526,6 +558,7 @@ mod tests {
             let tree = get_tree(input);
             let (r, exprs) = from_tree(&tree, input, "test");
             let mut diagnostics = Diagnostics::default();
+            let r = r.expect("Root node");
             let ir = Exprs::from_ast(&exprs, r, &mut diagnostics);
             let mut types = TypeEnv::default();
             let ty = type_of(&ir, &mut types, r, &mut diagnostics);

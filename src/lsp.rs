@@ -154,6 +154,9 @@ impl Backend {
         let filename = uri.to_file_path().unwrap().display().to_string();
         let (root_expr, exprs) = from_tree(tree, &src, &filename);
         let mut diagnostics = Diagnostics::default();
+        let Some(root_expr) = root_expr else {
+            return;
+        };
         let ir = lambda::ir::Exprs::from_ast(&exprs, root_expr, &mut diagnostics);
         _ = TypeEnv::infer(&ir, root_expr, &mut diagnostics);
 
@@ -307,11 +310,14 @@ impl LanguageServer for Backend {
             .display()
             .to_string();
         let (root_expr, exprs) = from_tree(tree, &src, &filename);
+        let Some(root_expr) = root_expr else {
+            return Ok(None);
+        };
         let mut diagnostics = Diagnostics::default();
         let ir = lambda::ir::Exprs::from_ast(&exprs, root_expr, &mut diagnostics);
         tracing::info!("`{}`", source);
         tracing::info!("{}", tree.root_node());
-        tracing::info!("{:?}", exprs.debug(root_expr));
+        tracing::info!("{:?}", exprs.debug(Some(root_expr)));
 
         let root = tree.root_node();
         let node = root.named_descendant_for_point_range(point, point).unwrap();
@@ -365,6 +371,9 @@ impl LanguageServer for Backend {
             .display()
             .to_string();
         let (root_expr, exprs) = from_tree(tree, &src, &filename);
+        let Some(root_expr) = root_expr else {
+            return Ok(Some(vec![]));
+        };
         let mut diagnostics = Diagnostics::default();
         let ir = lambda::ir::Exprs::from_ast(&exprs, root_expr, &mut diagnostics);
         // let mut types = TypeEnv::default();
@@ -438,6 +447,9 @@ impl LanguageServer for Backend {
             .display()
             .to_string();
         let (root_expr, exprs) = from_tree(tree, &src, &filename);
+        let Some(root_expr) = root_expr else {
+            return Ok(None);
+        };
 
         let mut diagnostics = Diagnostics::default();
         let ir = lambda::ir::Exprs::from_ast(&exprs, root_expr, &mut diagnostics);

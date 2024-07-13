@@ -7,22 +7,24 @@ use super::ExprId;
 use super::Exprs;
 use super::{SyntaxNode, SyntaxTree};
 
+#[allow(clippy::expect_used)]
 pub fn get_tree(code: &str) -> SyntaxTree {
     let mut parser = tree_sitter::Parser::new();
     parser
         .set_language(&tree_sitter_lambda::language())
-        .unwrap();
+        .expect("Parser");
 
-    parser.parse(code, None).unwrap()
+    parser.parse(code, None).expect("Tree")
 }
 
+#[allow(clippy::expect_used)]
 pub fn get_tree_diff(code: &str, old: &SyntaxTree) -> SyntaxTree {
     let mut parser = tree_sitter::Parser::new();
     parser
         .set_language(&tree_sitter_lambda::language())
-        .unwrap();
+        .expect("Parser");
 
-    parser.parse(code, Some(old)).unwrap()
+    parser.parse(code, Some(old)).expect("Tree")
 }
 
 pub fn to_spanned<'t>(
@@ -41,19 +43,19 @@ pub fn from_tree<'t>(
     tree: &'t SyntaxTree,
     code: &'t str,
     filename: &'t str,
-) -> (ExprId, Exprs<'t>) {
+) -> (Option<ExprId>, Exprs<'t>) {
     let root = tree.root_node();
 
     let mut cursor = root.walk();
-    let root = root.children(&mut cursor).find(|c| !c.is_extra()).unwrap();
-    let root = Spanned {
+    let root = root.children(&mut cursor).find(|c| !c.is_extra());
+    let root = root.map(|root| Spanned {
         range: root.range(),
         filename: Arc::from(filename),
         source: Arc::from(code),
         node: root,
-    };
+    });
 
-    from_node(root).root()
+    from_maybe_node(root).root()
 }
 
 // pub fn from_source(code: &str) -> (ExprId, Exprs) {
@@ -62,16 +64,23 @@ pub fn from_tree<'t>(
 // }
 
 fn from_field<'t>(node: SyntaxNode<'t>, field: &str) -> impl BuilderFn<'t> + 't {
-    from_node(node.map(|t| t.child_by_field_name(field).unwrap()))
+    from_maybe_node(node.map(|t| t.child_by_field_name(field)).transpose())
+}
+
+fn from_maybe_node<'t>(node: Option<SyntaxNode<'t>>) -> impl BuilderFn<'t> + 't {
+    move |e: &mut Exprs<'t>| match node {
+        Some(node) => from_node(node).build(e),
+        None => None,
+    }
 }
 
 fn from_node<'t>(node: SyntaxNode<'t>) -> impl BuilderFn<'t> + 't {
     move |e: &mut Exprs<'t>| match node.node.kind() {
-        "(" => from_node(node.map(|node| node.next_sibling().unwrap())).build(e),
-        "bool" => match node.node.child(0).unwrap().kind() {
-            "true" => true.build_with_node(e, node),
-            "false" => false.build_with_node(e, node),
-            kind => todo!("{kind}"),
+        "(" => from_maybe_node(node.map(|node| node.next_sibling()).transpose()).build(e),
+        "bool" => match node.node.child(0).map(|n| n.kind()) {
+            Some("true") => true.build_with_node(e, node),
+            Some("false") => false.build_with_node(e, node),
+            kind => todo!("{kind:?}"),
         },
         "let" => _let(
             from_var_def(node.clone(), "key"),
@@ -95,15 +104,20 @@ fn from_node<'t>(node: SyntaxNode<'t>) -> impl BuilderFn<'t> + 't {
 }
 
 fn from_var_def<'t>(node: SyntaxNode<'t>, field: &str) -> impl VarDefLike<'t> {
-    let node = node.map(|node| node.child_by_field_name(field).unwrap());
+    let node = node.map(|node| node.child_by_field_name(field)).transpose();
     VarDef {
-        arg: from_str(node.clone()),
-        node: Some(node),
+        arg: node.clone().map(from_str).unwrap_or_default(),
+        node,
     }
 }
 
+#[allow(clippy::expect_used)]
+/// PANICS: Our lambda language always expects utf8
 fn from_str(node: SyntaxNode) -> String {
-    node.node.utf8_text(node.source.as_bytes()).unwrap().into()
+    node.node
+        .utf8_text(node.source.as_bytes())
+        .expect("UTF8 text")
+        .into()
 }
 
 #[cfg(test)]

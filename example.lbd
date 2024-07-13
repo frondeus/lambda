@@ -1,9 +1,2 @@
-# let g = a: a;
-# g
-# true
-let f = g: (
-	let a = (g true);
-	let b = (g g);
-	a
-);
-f (id: id)
+let f = a: a;
+	f true

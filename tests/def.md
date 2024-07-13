@@ -10,16 +10,28 @@ a: a
 ```
 
 ```ast
-Def(
-    Var(a),
-    a,
+Some(
+    Def(
+        Some(
+            Var(a),
+        ),
+        Some(
+            a,
+        ),
+    ),
 )
 ```
 
 ```ir
-Def(
-    VarDef(a, VarId(0)),
-    Var(a, Some(VarId(0))),
+Some(
+    Def(
+        Some(
+            VarDef(a, VarId(0)),
+        ),
+        Some(
+            Var(a, Some(VarId(0))),
+        ),
+    ),
 )
 ```
 

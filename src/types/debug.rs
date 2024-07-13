@@ -94,9 +94,11 @@ impl<'a> std::fmt::Debug for DebugExprType<'a> {
 impl<'a> std::fmt::Debug for DebugTypeEnv<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_list()
-            .entries(self.types.exprs.iter().map(|(e, t)| DebugExprType {
-                expr: self.exprs.debug(*e),
-                ty: self.types.debug(*t),
+            .entries(self.types.exprs.iter().filter_map(|(e, t)| {
+                Some(DebugExprType {
+                    expr: self.exprs.debug(Some(*e))?,
+                    ty: self.types.debug(*t),
+                })
             }))
             .finish()
     }

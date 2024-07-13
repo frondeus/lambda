@@ -16,32 +16,64 @@ f true
 ```
 
 ```ast
-Let(
-    Var(f),
-    Def(
-        Var(a),
-        a,
-    ),
-    Call(
-        f,
-        Bool(
-            true,
+Some(
+    Let(
+        Some(
+            Var(f),
+        ),
+        Some(
+            Def(
+                Some(
+                    Var(a),
+                ),
+                Some(
+                    a,
+                ),
+            ),
+        ),
+        Some(
+            Call(
+                Some(
+                    f,
+                ),
+                Some(
+                    Bool(
+                        true,
+                    ),
+                ),
+            ),
         ),
     ),
 )
 ```
 
 ```ir
-Let(
-    VarDef(f, VarId(0)),
-    Def(
-        VarDef(a, VarId(1)),
-        Var(a, Some(VarId(1))),
-    ),
-    Call(
-        Var(f, Some(VarId(0))),
-        Bool(
-            true,
+Some(
+    Let(
+        Some(
+            VarDef(f, VarId(0)),
+        ),
+        Some(
+            Def(
+                Some(
+                    VarDef(a, VarId(1)),
+                ),
+                Some(
+                    Var(a, Some(VarId(1))),
+                ),
+            ),
+        ),
+        Some(
+            Call(
+                Some(
+                    Var(f, Some(VarId(0))),
+                ),
+                Some(
+                    Bool(
+                        true,
+                    ),
+                ),
+            ),
         ),
     ),
 )
@@ -83,54 +115,110 @@ f true false
 ```
 
 ```ast
-Let(
-    Var(f),
-    Def(
-        Var(a),
-        Def(
-            Var(b),
+Some(
+    Let(
+        Some(
+            Var(f),
+        ),
+        Some(
             Def(
-                Var(c),
-                a,
+                Some(
+                    Var(a),
+                ),
+                Some(
+                    Def(
+                        Some(
+                            Var(b),
+                        ),
+                        Some(
+                            Def(
+                                Some(
+                                    Var(c),
+                                ),
+                                Some(
+                                    a,
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
             ),
         ),
-    ),
-    Call(
-        Call(
-            f,
-            Bool(
-                true,
+        Some(
+            Call(
+                Some(
+                    Call(
+                        Some(
+                            f,
+                        ),
+                        Some(
+                            Bool(
+                                true,
+                            ),
+                        ),
+                    ),
+                ),
+                Some(
+                    Bool(
+                        false,
+                    ),
+                ),
             ),
-        ),
-        Bool(
-            false,
         ),
     ),
 )
 ```
 
 ```ir
-Let(
-    VarDef(f, VarId(0)),
-    Def(
-        VarDef(a, VarId(1)),
-        Def(
-            VarDef(b, VarId(2)),
+Some(
+    Let(
+        Some(
+            VarDef(f, VarId(0)),
+        ),
+        Some(
             Def(
-                VarDef(c, VarId(3)),
-                Var(a, Some(VarId(1))),
+                Some(
+                    VarDef(a, VarId(1)),
+                ),
+                Some(
+                    Def(
+                        Some(
+                            VarDef(b, VarId(2)),
+                        ),
+                        Some(
+                            Def(
+                                Some(
+                                    VarDef(c, VarId(3)),
+                                ),
+                                Some(
+                                    Var(a, Some(VarId(1))),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
             ),
         ),
-    ),
-    Call(
-        Call(
-            Var(f, Some(VarId(0))),
-            Bool(
-                true,
+        Some(
+            Call(
+                Some(
+                    Call(
+                        Some(
+                            Var(f, Some(VarId(0))),
+                        ),
+                        Some(
+                            Bool(
+                                true,
+                            ),
+                        ),
+                    ),
+                ),
+                Some(
+                    Bool(
+                        false,
+                    ),
+                ),
             ),
-        ),
-        Bool(
-            false,
         ),
     ),
 )

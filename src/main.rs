@@ -69,10 +69,14 @@ async fn main() {
 
                 let filename = source_name.display().to_string();
                 let (root, exprs) = from_tree(&tree, &source, &filename);
+                let Some(root) = root else {
+                    eprintln!("<Nothing to do>");
+                    return;
+                };
                 let mut diagnostics = Diagnostics::default();
                 let ir = lambda::ir::Exprs::from_ast(&exprs, root, &mut diagnostics);
 
-                println!("{:#?}", exprs.debug(root));
+                println!("{:#?}", exprs.debug(Some(root)));
                 let (types, ty) = TypeEnv::infer(&ir, root, &mut diagnostics);
                 // match TypeEnv::infer(&ir, root) {
                 //     Err((_, e)) => {
@@ -91,6 +95,10 @@ async fn main() {
                 let tree = get_tree(&source);
                 let filename = source_name.display().to_string();
                 let (root, exprs) = from_tree(&tree, &source, &filename);
+                let Some(root) = root else {
+                    eprintln!("<Nothing to do>");
+                    return;
+                };
                 let mut diagnostics = Diagnostics::default();
                 let ir = lambda::ir::Exprs::from_ast(&exprs, root, &mut diagnostics);
                 let mut runtime = Default::default();

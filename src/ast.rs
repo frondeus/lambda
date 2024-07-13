@@ -31,19 +31,19 @@ pub enum Expr<'a> {
         node: Option<SyntaxNode<'a>>,
     },
     Def {
-        arg: ExprId,
-        body: ExprId,
+        arg: Option<ExprId>,
+        body: Option<ExprId>,
         node: Option<SyntaxNode<'a>>,
     }, // "fn x: x"
     Call {
-        func: ExprId,
-        arg: ExprId,
+        func: Option<ExprId>,
+        arg: Option<ExprId>,
         node: Option<SyntaxNode<'a>>,
     }, // x(y)
     Let {
-        name: ExprId,
-        value: ExprId,
-        body: ExprId,
+        name: Option<ExprId>,
+        value: Option<ExprId>,
+        body: Option<ExprId>,
         node: Option<SyntaxNode<'a>>,
     }, // let x = 0; x
 }
@@ -94,8 +94,9 @@ impl<'a> Exprs<'a> {
         &self.e[id.0]
     }
 
-    pub fn debug(&self, root: ExprId) -> DebugExpr {
-        self.get(root).debug(self)
+    pub fn debug(&self, root: Option<ExprId>) -> Option<DebugExpr> {
+        let root = root?;
+        Some(self.get(root).debug(self))
     }
 }
 

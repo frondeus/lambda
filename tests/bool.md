@@ -9,14 +9,18 @@ true
 ```
 
 ```ast
-Bool(
-    true,
+Some(
+    Bool(
+        true,
+    ),
 )
 ```
 
 ```ir
-Bool(
-    true,
+Some(
+    Bool(
+        true,
+    ),
 )
 ```
 
@@ -41,14 +45,18 @@ false
 ```
 
 ```ast
-Bool(
-    false,
+Some(
+    Bool(
+        false,
+    ),
 )
 ```
 
 ```ir
-Bool(
-    false,
+Some(
+    Bool(
+        false,
+    ),
 )
 ```
 

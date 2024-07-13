@@ -11,25 +11,41 @@ let x = true; false
 ```
 
 ```ast
-Let(
-    Var(x),
-    Bool(
-        true,
-    ),
-    Bool(
-        false,
+Some(
+    Let(
+        Some(
+            Var(x),
+        ),
+        Some(
+            Bool(
+                true,
+            ),
+        ),
+        Some(
+            Bool(
+                false,
+            ),
+        ),
     ),
 )
 ```
 
 ```ir
-Let(
-    VarDef(x, VarId(0)),
-    Bool(
-        true,
-    ),
-    Bool(
-        false,
+Some(
+    Let(
+        Some(
+            VarDef(x, VarId(0)),
+        ),
+        Some(
+            Bool(
+                true,
+            ),
+        ),
+        Some(
+            Bool(
+                false,
+            ),
+        ),
     ),
 )
 ```
@@ -62,25 +78,41 @@ let x = true;
 ```
 
 ```ast
-Let(
-    Var(x),
-    Bool(
-        true,
-    ),
-    Bool(
-        false,
+Some(
+    Let(
+        Some(
+            Var(x),
+        ),
+        Some(
+            Bool(
+                true,
+            ),
+        ),
+        Some(
+            Bool(
+                false,
+            ),
+        ),
     ),
 )
 ```
 
 ```ir
-Let(
-    VarDef(x, VarId(0)),
-    Bool(
-        true,
-    ),
-    Bool(
-        false,
+Some(
+    Let(
+        Some(
+            VarDef(x, VarId(0)),
+        ),
+        Some(
+            Bool(
+                true,
+            ),
+        ),
+        Some(
+            Bool(
+                false,
+            ),
+        ),
     ),
 )
 ```

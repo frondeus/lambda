@@ -1,3 +1,6 @@
+#![allow(clippy::unwrap_used, clippy::expect_used)] // We allow these in runtime because
+                                                    // the whole point of static analysis is to prevent these from happening
+
 use std::{cell::RefCell, fmt::Display, mem::MaybeUninit, rc::Rc};
 
 use crate::ast::{var_def_to_intern, var_def_to_str, Expr, ExprId, Exprs, InternId};
@@ -90,33 +93,42 @@ pub fn eval(e: &Exprs, env: &mut RunEnv, id: ExprId) -> Value {
             arg: name,
             body,
             node: _,
-        } => Value::Fn(
-            var_def_to_str(e, *name).into(),
-            var_def_to_intern(e, *name),
-            *body,
-            env.clone(),
-        ),
+        } => {
+            let name = name.expect("Name");
+            let body = body.expect("Body");
+            Value::Fn(
+                var_def_to_str(e, name).into(),
+                var_def_to_intern(e, name),
+                body,
+                env.clone(),
+            )
+        }
         Expr::Call {
             func: f,
             arg,
             node: _,
-        } => match eval(e, env, *f) {
-            Value::Fn(_name, name, body, captured_scope) => {
-                let arg = eval(e, env, *arg);
-                let mut inner = captured_scope.push(name, arg);
-                eval(e, &mut inner, body)
+        } => {
+            let f = f.expect("f");
+            let arg = arg.expect("arg");
+            match eval(e, env, f) {
+                Value::Fn(_name, name, body, captured_scope) => {
+                    let arg = eval(e, env, arg);
+                    let mut inner = captured_scope.push(name, arg);
+                    eval(e, &mut inner, body)
+                }
+                _ => panic!("Expected function"),
             }
-            _ => panic!("Expected function"),
-        },
+        }
         Expr::Let {
             name,
             value,
             body,
             node: _,
         } => {
-            let name = var_def_to_intern(e, *name);
+            let name = var_def_to_intern(e, name.expect("name"));
             let mut inner = env.push_uninit(name);
-            let value = eval(e, &mut inner, *value);
+            let value = eval(e, &mut inner, value.expect("value"));
+            let body = body.expect("body");
             inner
                 .scope
                 .as_mut()
@@ -124,7 +136,7 @@ pub fn eval(e: &Exprs, env: &mut RunEnv, id: ExprId) -> Value {
                 .value
                 .borrow_mut()
                 .write(value);
-            eval(e, &mut inner, *body)
+            eval(e, &mut inner, body)
         }
     }
 }
@@ -143,6 +155,7 @@ mod tests {
         test_runner::test_snapshots("tests/", "eval", |input, _deps| {
             let tree = get_tree(input);
             let (r, exprs) = from_tree(&tree, input, "test");
+            let r = r.expect("Root");
             let mut diagnostics = Diagnostics::default();
             let ir = Exprs::from_ast(&exprs, r, &mut diagnostics);
             _ = TypeEnv::infer(&ir, r, &mut diagnostics);

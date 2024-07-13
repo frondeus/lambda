@@ -92,18 +92,22 @@ impl Diagnostic {
 }
 
 impl Diagnostics {
-    pub fn to_pretty_string(&self) -> String {
+    pub fn to_pretty_string(&self) -> std::io::Result<String> {
         let mut output = Vec::new();
         let mut output_buf = BufWriter::new(&mut output);
         for diag in self.iter().map(|d| d.to_report()) {
-            diag.write(sources(self.sources.clone()), &mut output_buf)
-                .unwrap();
+            diag.write(sources(self.sources.clone()), &mut output_buf)?;
         }
         drop(output_buf);
-        String::from_utf8(output).unwrap()
+
+        #[allow(clippy::expect_used)]
+        // SAFETY: We will assume that the output is valid utf8
+        // We don't expect different encoding
+        Ok(String::from_utf8(output).expect("Valid utf8"))
     }
 }
 
+#[allow(clippy::expect_used)]
 #[cfg(test)]
 mod tests {
     use crate::{
@@ -119,10 +123,11 @@ mod tests {
         test_runner::test_snapshots("tests/", "diagnostics", |input, _deps| {
             let tree = get_tree(input);
             let (r, exprs) = from_tree(&tree, input, "test");
+            let r = r.expect("Root node");
             let mut diagnostics = Diagnostics::default();
             let ir = Exprs::from_ast(&exprs, r, &mut diagnostics);
             _ = TypeEnv::infer(&ir, r, &mut diagnostics);
-            diagnostics.to_pretty_string()
+            diagnostics.to_pretty_string().expect("Pretty print")
         })
     }
 }

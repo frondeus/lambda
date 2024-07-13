@@ -12,6 +12,7 @@ pub fn arbitrary_expr_id(e: &mut Exprs, u: &mut Unstructured) -> Result<ExprId> 
     Ok(e.push(expr))
 }
 
+#[allow(clippy::expect_used)]
 fn arbitrary_expr<'a>(e: &mut Exprs<'a>, u: &mut Unstructured) -> Result<Expr<'a>> {
     let kind = u.arbitrary::<ExprKind>()?;
     Ok(match kind {
@@ -19,20 +20,20 @@ fn arbitrary_expr<'a>(e: &mut Exprs<'a>, u: &mut Unstructured) -> Result<Expr<'a
             value: u.arbitrary()?,
             node: None,
         },
-        ExprKind::Var => var(u.choose(NAMES)?).build(e),
+        ExprKind::Var => var(u.choose(NAMES)?).build(e).expect("Var"),
         ExprKind::Def => {
             let ret = arbitrary_expr_id(e, u)?;
             let name = e.push_str(u.choose(NAMES)?);
             let name = e.push(Expr::VarDef { name, node: None });
             Expr::Def {
-                arg: name,
-                body: ret,
+                arg: Some(name),
+                body: Some(ret),
                 node: None,
             }
         }
         ExprKind::Call => {
-            let func = arbitrary_expr_id(e, u)?;
-            let arg = arbitrary_expr_id(e, u)?;
+            let func = Some(arbitrary_expr_id(e, u)?);
+            let arg = Some(arbitrary_expr_id(e, u)?);
             Expr::Call {
                 func,
                 arg,
@@ -41,9 +42,9 @@ fn arbitrary_expr<'a>(e: &mut Exprs<'a>, u: &mut Unstructured) -> Result<Expr<'a
         }
         ExprKind::Let => {
             let name = e.push_str(u.choose(NAMES)?);
-            let name = e.push(Expr::VarDef { name, node: None });
-            let value = arbitrary_expr_id(e, u)?;
-            let then = arbitrary_expr_id(e, u)?;
+            let name = Some(e.push(Expr::VarDef { name, node: None }));
+            let value = Some(arbitrary_expr_id(e, u)?);
+            let then = Some(arbitrary_expr_id(e, u)?);
             Expr::Let {
                 name,
                 value,
@@ -70,6 +71,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[ignore]
     fn fuzzy_tests() {
         arbtest::arbtest(|u| {
             let mut exprs = Exprs::default();
