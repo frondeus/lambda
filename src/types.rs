@@ -170,6 +170,22 @@ fn gather_cons(e: &Exprs, env: &mut TypeEnv, id: ExprId, diagnostics: &mut Diagn
             env.constraints.push(from, arg_id, *func);
             env.set_type_id_for_expr(id, to)
         }
+        Expr::IfElse {
+            cond,
+            then,
+            else_,
+            node: _,
+        } => {
+            let then_id = maybe_gather_cons(e, env, then, diagnostics);
+            let cond_id = maybe_gather_cons(e, env, cond, diagnostics);
+            let else_id = maybe_gather_cons(e, env, else_, diagnostics);
+
+            let is_bool = env.add_type(Type::Bool);
+            env.constraints.push(cond_id, is_bool, *cond);
+            env.constraints.push(else_id, then_id, *else_);
+
+            env.set_type_id_for_expr(id, then_id)
+        }
         Expr::Let {
             name,
             value: value_id,

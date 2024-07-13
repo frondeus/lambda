@@ -23,6 +23,7 @@ module.exports = grammar({
       $.ident,
       $.def,
       $.call,
+      $.ifElse,
       $["let"]
     ),
     bool: $ => choice("true", "false"),
@@ -32,6 +33,14 @@ module.exports = grammar({
       field("func", $._expr), 
       field("arg", $._expr), 
     )),
+    ifElse: $ => seq(
+      "if",
+      field("cond", $._expr),
+      "then",
+      field("then", $._expr),
+      "else",
+      field("else", $._expr)
+    ),
     "let": $ => prec.right(PREC.let, seq(
       "let",
       field("key", $.ident),

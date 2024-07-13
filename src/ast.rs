@@ -40,6 +40,12 @@ pub enum Expr<'a> {
         arg: Option<ExprId>,
         node: Option<SyntaxNode<'a>>,
     }, // x(y)
+    IfElse {
+        cond: Option<ExprId>,
+        then: Option<ExprId>,
+        else_: Option<ExprId>,
+        node: Option<SyntaxNode<'a>>,
+    }, // if x { y } else { z }
     Let {
         name: Option<ExprId>,
         value: Option<ExprId>,
@@ -138,6 +144,17 @@ impl<'a> std::fmt::Debug for DebugExpr<'a> {
                 .debug_tuple("Call")
                 .field(&self.ex.debug(*fun))
                 .field(&self.ex.debug(*arg))
+                .finish(),
+            Expr::IfElse {
+                cond,
+                then,
+                else_,
+                node: _,
+            } => f
+                .debug_tuple("IfElse")
+                .field(&self.ex.debug(*cond))
+                .field(&self.ex.debug(*then))
+                .field(&self.ex.debug(*else_))
                 .finish(),
             Expr::Let {
                 name,

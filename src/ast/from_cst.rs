@@ -99,6 +99,12 @@ fn from_node<'t>(node: SyntaxNode<'t>) -> impl BuilderFn<'t> + 't {
             from_field(node.clone(), "arg"),
         )
         .build_with_node(e, node),
+        "ifElse" => if_else(
+            from_field(node.clone(), "cond"),
+            from_field(node.clone(), "then"),
+            from_field(node.clone(), "else"),
+        )
+        .build_with_node(e, node),
         kind => todo!("{kind}"),
     }
 }

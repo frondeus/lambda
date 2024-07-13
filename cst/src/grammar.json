@@ -60,6 +60,10 @@
         },
         {
           "type": "SYMBOL",
+          "name": "ifElse"
+        },
+        {
+          "type": "SYMBOL",
           "name": "let"
         }
       ]
@@ -130,6 +134,47 @@
           }
         ]
       }
+    },
+    "ifElse": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "if"
+        },
+        {
+          "type": "FIELD",
+          "name": "cond",
+          "content": {
+            "type": "SYMBOL",
+            "name": "_expr"
+          }
+        },
+        {
+          "type": "STRING",
+          "value": "then"
+        },
+        {
+          "type": "FIELD",
+          "name": "then",
+          "content": {
+            "type": "SYMBOL",
+            "name": "_expr"
+          }
+        },
+        {
+          "type": "STRING",
+          "value": "else"
+        },
+        {
+          "type": "FIELD",
+          "name": "else",
+          "content": {
+            "type": "SYMBOL",
+            "name": "_expr"
+          }
+        }
+      ]
     },
     "let": {
       "type": "PREC_RIGHT",

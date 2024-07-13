@@ -37,6 +37,10 @@
             "named": true
           },
           {
+            "type": "ifElse",
+            "named": true
+          },
+          {
             "type": "let",
             "named": true
           }
@@ -68,6 +72,10 @@
           },
           {
             "type": "ident",
+            "named": true
+          },
+          {
+            "type": "ifElse",
             "named": true
           },
           {
@@ -121,6 +129,130 @@
             "named": true
           },
           {
+            "type": "ifElse",
+            "named": true
+          },
+          {
+            "type": "let",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "ifElse",
+    "named": true,
+    "fields": {
+      "cond": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": "(",
+            "named": false
+          },
+          {
+            "type": ")",
+            "named": false
+          },
+          {
+            "type": "bool",
+            "named": true
+          },
+          {
+            "type": "call",
+            "named": true
+          },
+          {
+            "type": "def",
+            "named": true
+          },
+          {
+            "type": "ident",
+            "named": true
+          },
+          {
+            "type": "ifElse",
+            "named": true
+          },
+          {
+            "type": "let",
+            "named": true
+          }
+        ]
+      },
+      "else": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": "(",
+            "named": false
+          },
+          {
+            "type": ")",
+            "named": false
+          },
+          {
+            "type": "bool",
+            "named": true
+          },
+          {
+            "type": "call",
+            "named": true
+          },
+          {
+            "type": "def",
+            "named": true
+          },
+          {
+            "type": "ident",
+            "named": true
+          },
+          {
+            "type": "ifElse",
+            "named": true
+          },
+          {
+            "type": "let",
+            "named": true
+          }
+        ]
+      },
+      "then": {
+        "multiple": true,
+        "required": true,
+        "types": [
+          {
+            "type": "(",
+            "named": false
+          },
+          {
+            "type": ")",
+            "named": false
+          },
+          {
+            "type": "bool",
+            "named": true
+          },
+          {
+            "type": "call",
+            "named": true
+          },
+          {
+            "type": "def",
+            "named": true
+          },
+          {
+            "type": "ident",
+            "named": true
+          },
+          {
+            "type": "ifElse",
+            "named": true
+          },
+          {
             "type": "let",
             "named": true
           }
@@ -158,6 +290,10 @@
           },
           {
             "type": "ident",
+            "named": true
+          },
+          {
+            "type": "ifElse",
             "named": true
           },
           {
@@ -205,6 +341,10 @@
             "named": true
           },
           {
+            "type": "ifElse",
+            "named": true
+          },
+          {
             "type": "let",
             "named": true
           }
@@ -234,6 +374,10 @@
         },
         {
           "type": "ident",
+          "named": true
+        },
+        {
+          "type": "ifElse",
           "named": true
         },
         {
@@ -268,6 +412,10 @@
     "named": true
   },
   {
+    "type": "else",
+    "named": false
+  },
+  {
     "type": "false",
     "named": false
   },
@@ -276,7 +424,15 @@
     "named": true
   },
   {
+    "type": "if",
+    "named": false
+  },
+  {
     "type": "let",
+    "named": false
+  },
+  {
+    "type": "then",
     "named": false
   },
   {

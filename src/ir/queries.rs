@@ -10,6 +10,7 @@ impl<'a> Expr<'a> {
             Expr::VarDef { node, .. } => node.clone(),
             Expr::Def { node, .. } => node.clone(),
             Expr::Call { node, .. } => node.clone(),
+            Expr::IfElse { node, .. } => node.clone(),
             Expr::Let { node, .. } => node.clone(),
         }
     }
@@ -21,6 +22,7 @@ impl<'a> Expr<'a> {
             Expr::VarDef { .. } => false,
             Expr::Def { .. } => false,
             Expr::Call { .. } => false,
+            Expr::IfElse { .. } => false,
             Expr::Let { .. } => false,
         }
     }

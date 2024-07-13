@@ -36,6 +36,12 @@ pub enum Expr<'a> {
         arg: Option<ExprId>,
         node: Option<SyntaxNode<'a>>,
     },
+    IfElse {
+        cond: Option<ExprId>,
+        then: Option<ExprId>,
+        else_: Option<ExprId>,
+        node: Option<SyntaxNode<'a>>,
+    },
     Let {
         name: Option<ExprId>,
         value: Option<ExprId>,
@@ -186,6 +192,16 @@ fn fix_scope<'a>(exprs: Exprs<'a>, e: ExprId, diagnostics: &mut Diagnostics) -> 
                 stack.push_back(StackItem::Expr(*arg));
                 stack.push_back(StackItem::Expr(*func));
             }
+            Expr::IfElse {
+                cond,
+                then,
+                else_,
+                node: _,
+            } => {
+                stack.push_back(StackItem::Expr(*else_));
+                stack.push_back(StackItem::Expr(*then));
+                stack.push_back(StackItem::Expr(*cond));
+            }
             Expr::Let {
                 name,
                 value,
@@ -244,6 +260,17 @@ impl<'a> Expr<'a> {
                 arg,
                 node: node.clone(),
             },
+            crate::ast::Expr::IfElse {
+                cond,
+                then,
+                else_,
+                ref node,
+            } => Expr::IfElse {
+                cond,
+                then,
+                else_,
+                node: node.clone(),
+            },
             crate::ast::Expr::Let {
                 name,
                 value,
@@ -297,6 +324,17 @@ impl<'a> std::fmt::Debug for DebugExpr<'a> {
                 .debug_tuple("Call")
                 .field(&self.ex.debug(*fun))
                 .field(&self.ex.debug(*arg))
+                .finish(),
+            Expr::IfElse {
+                cond,
+                then,
+                else_,
+                node: _,
+            } => f
+                .debug_tuple("IfElse")
+                .field(&self.ex.debug(*cond))
+                .field(&self.ex.debug(*then))
+                .field(&self.ex.debug(*else_))
                 .finish(),
             Expr::Let {
                 name,

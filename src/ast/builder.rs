@@ -39,6 +39,17 @@ pub trait BuilderFn<'a> {
                 body: then,
                 node: Some(node),
             },
+            Expr::IfElse {
+                cond,
+                then,
+                else_,
+                node: _,
+            } => Expr::IfElse {
+                cond,
+                then,
+                else_,
+                node: Some(node),
+            },
             Expr::Call { func, arg, node: _ } => Expr::Call {
                 func,
                 arg,
@@ -165,6 +176,21 @@ pub fn call<'t>(fun: impl BuilderFn<'t>, arg: impl BuilderFn<'t>) -> impl Builde
         Some(Expr::Call {
             func: fun.dependency(e),
             arg: arg.dependency(e),
+            node: None,
+        })
+    }
+}
+
+pub fn if_else<'t>(
+    cond: impl BuilderFn<'t>,
+    then: impl BuilderFn<'t>,
+    else_: impl BuilderFn<'t>,
+) -> impl BuilderFn<'t> {
+    move |e: &mut Exprs<'t>| {
+        Some(Expr::IfElse {
+            cond: cond.dependency(e),
+            then: then.dependency(e),
+            else_: else_.dependency(e),
             node: None,
         })
     }

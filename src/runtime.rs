@@ -119,6 +119,21 @@ pub fn eval(e: &Exprs, env: &mut RunEnv, id: ExprId) -> Value {
                 _ => panic!("Expected function"),
             }
         }
+        Expr::IfElse {
+            cond,
+            then,
+            else_,
+            node: _,
+        } => {
+            let cond = cond.expect("cond");
+            let then = then.expect("then");
+            let else_ = else_.expect("else");
+            match eval(e, env, cond) {
+                Value::Bool(true) => eval(e, env, then),
+                Value::Bool(false) => eval(e, env, else_),
+                _ => panic!("Expected bool"),
+            }
+        }
         Expr::Let {
             name,
             value,

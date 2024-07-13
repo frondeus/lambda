@@ -7,7 +7,7 @@ Therefore I cut the scope of this language to bare minimum (pure lambda calculus
 
 # Chapter 10
 
-* [ ] If else
+* [x] If else
 * [x] Type checking
 * [x] Evaluating
 * [x] Tree sitter grammar
