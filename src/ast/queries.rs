@@ -1,16 +1,14 @@
-use tree_sitter::Node as SyntaxNode;
-
-use super::{Expr, ExprId, Exprs};
+use super::{Expr, ExprId, Exprs, SyntaxNode};
 
 impl<'a> Expr<'a> {
     pub fn node(&self) -> Option<SyntaxNode<'a>> {
         match self {
-            Expr::Bool { node, .. } => *node,
-            Expr::Var { node, .. } => *node,
-            Expr::VarDef { node, .. } => *node,
-            Expr::Def { node, .. } => *node,
-            Expr::Call { node, .. } => *node,
-            Expr::Let { node, .. } => *node,
+            Expr::Bool { node, .. } => node.clone(),
+            Expr::Var { node, .. } => node.clone(),
+            Expr::VarDef { node, .. } => node.clone(),
+            Expr::Def { node, .. } => node.clone(),
+            Expr::Call { node, .. } => node.clone(),
+            Expr::Let { node, .. } => node.clone(),
         }
     }
 

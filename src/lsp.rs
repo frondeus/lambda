@@ -6,7 +6,7 @@ use std::{
 
 use lambda::{
     ast::{
-        from_cst::{from_tree, get_tree, get_tree_diff},
+        from_cst::{from_tree, get_tree, get_tree_diff, to_spanned},
         queries::Queries,
         SyntaxTree,
     },
@@ -151,7 +151,8 @@ impl Backend {
         };
         let File { tree, source } = &*file;
         let src = format!("{source}");
-        let (root_expr, exprs) = from_tree(tree, &src);
+        let filename = uri.to_file_path().unwrap().display().to_string();
+        let (root_expr, exprs) = from_tree(tree, &src, &filename);
         let mut diagnostics = Diagnostics::default();
         let ir = lambda::ir::Exprs::from_ast(&exprs, root_expr, &mut diagnostics);
         _ = TypeEnv::infer(&ir, root_expr, &mut diagnostics);
@@ -159,12 +160,12 @@ impl Backend {
         let diagnostics = diagnostics
             .iter()
             .map(|i| Diagnostic {
-                range: source.to_lsp_range(i.span),
+                range: source.to_lsp_range(i.message.range),
                 severity: Some(DiagnosticSeverity::ERROR),
                 code: None,
                 code_description: None,
                 source: Some("lambda".to_string()),
-                message: i.message.clone(),
+                message: i.message.node.clone(),
                 related_information: None,
                 tags: None,
                 data: None,
@@ -297,7 +298,15 @@ impl LanguageServer for Backend {
         let point = Point::new(position.line as usize, position.character as usize);
 
         let src = format!("{source}");
-        let (root_expr, exprs) = from_tree(tree, &src);
+        let filename = params
+            .text_document_position_params
+            .text_document
+            .uri
+            .to_file_path()
+            .unwrap()
+            .display()
+            .to_string();
+        let (root_expr, exprs) = from_tree(tree, &src, &filename);
         let mut diagnostics = Diagnostics::default();
         let ir = lambda::ir::Exprs::from_ast(&exprs, root_expr, &mut diagnostics);
         tracing::info!("`{}`", source);
@@ -306,6 +315,7 @@ impl LanguageServer for Backend {
 
         let root = tree.root_node();
         let node = root.named_descendant_for_point_range(point, point).unwrap();
+        let node = to_spanned(node, &src);
 
         // tracing::info!("Node: {:#}", node);
 
@@ -347,7 +357,14 @@ impl LanguageServer for Backend {
 
         tracing::info!("Inlay hint for {}", params.text_document.uri);
         let src = format!("{source}");
-        let (root_expr, exprs) = from_tree(tree, &src);
+        let filename = params
+            .text_document
+            .uri
+            .to_file_path()
+            .unwrap()
+            .display()
+            .to_string();
+        let (root_expr, exprs) = from_tree(tree, &src, &filename);
         let mut diagnostics = Diagnostics::default();
         let ir = lambda::ir::Exprs::from_ast(&exprs, root_expr, &mut diagnostics);
         // let mut types = TypeEnv::default();
@@ -367,8 +384,8 @@ impl LanguageServer for Backend {
             if e.is_literal() {
                 continue;
             }
-            let sp = node.start_position();
-            let ep = node.end_position();
+            let sp = node.node.start_position();
+            let ep = node.node.end_position();
             let ty = ty.debug(&types);
 
             if intersects((range_start, range_end), (sp, ep)) {
@@ -412,13 +429,22 @@ impl LanguageServer for Backend {
         let point = Point::new(position.line as usize, position.character as usize);
 
         let src = format!("{source}");
-        let (root_expr, exprs) = from_tree(tree, &src);
+        let filename = params
+            .text_document_position_params
+            .text_document
+            .uri
+            .to_file_path()
+            .unwrap()
+            .display()
+            .to_string();
+        let (root_expr, exprs) = from_tree(tree, &src, &filename);
 
         let mut diagnostics = Diagnostics::default();
         let ir = lambda::ir::Exprs::from_ast(&exprs, root_expr, &mut diagnostics);
 
         let root = tree.root_node();
         let node = root.named_descendant_for_point_range(point, point).unwrap();
+        let node = to_spanned(node, &src);
         let Some(node_expr_id) = exprs.find_expr_with_node(node) else {
             return Ok(None);
         };

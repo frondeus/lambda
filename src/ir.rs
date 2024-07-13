@@ -1,9 +1,7 @@
 use std::collections::{BTreeMap, VecDeque};
 
-use tree_sitter::Node as SyntaxNode;
-
 use crate::{
-    ast::{ExprId, InternId},
+    ast::{ExprId, InternId, SyntaxNode},
     diagnostics::Diagnostics,
 };
 
@@ -12,7 +10,7 @@ pub mod queries;
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd, Default, Debug)]
 pub struct VarId(usize);
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub enum Expr<'a> {
     Bool {
         value: bool,
@@ -47,13 +45,13 @@ pub enum Expr<'a> {
 }
 
 impl<'a> Expr<'a> {
-    pub fn unwrap_var_def(self) -> VarId {
+    pub fn unwrap_var_def(&self) -> VarId {
         match self {
             Expr::VarDef {
                 name: _,
                 id,
                 node: _,
-            } => id,
+            } => *id,
             e => unreachable!("{:?} is not VarDef", e),
         }
     }
@@ -212,29 +210,48 @@ fn fix_scope<'a>(exprs: Exprs<'a>, e: ExprId, diagnostics: &mut Diagnostics) -> 
 impl<'a> Expr<'a> {
     fn from_ast(e: &'a crate::ast::Expr<'a>) -> Expr<'a> {
         match *e {
-            crate::ast::Expr::Bool { value, node } => Expr::Bool { value, node },
-            crate::ast::Expr::Var { name, node } => Expr::Var {
+            crate::ast::Expr::Bool { value, ref node } => Expr::Bool {
+                value,
+                node: node.clone(),
+            },
+            crate::ast::Expr::Var { name, ref node } => Expr::Var {
                 name,
-                node,
+                node: node.clone(),
                 id: None,
             },
-            crate::ast::Expr::VarDef { name, node } => Expr::VarDef {
+            crate::ast::Expr::VarDef { name, ref node } => Expr::VarDef {
                 name,
-                node,
+                node: node.clone(),
                 id: VarId(0),
             },
-            crate::ast::Expr::Def { arg, body, node } => Expr::Def { arg, body, node },
-            crate::ast::Expr::Call { func, arg, node } => Expr::Call { func, arg, node },
+            crate::ast::Expr::Def {
+                arg,
+                body,
+                ref node,
+            } => Expr::Def {
+                arg,
+                body,
+                node: node.clone(),
+            },
+            crate::ast::Expr::Call {
+                func,
+                arg,
+                ref node,
+            } => Expr::Call {
+                func,
+                arg,
+                node: node.clone(),
+            },
             crate::ast::Expr::Let {
                 name,
                 value,
                 body,
-                node,
+                ref node,
             } => Expr::Let {
                 name,
                 value,
                 body,
-                node,
+                node: node.clone(),
             },
         }
     }
@@ -304,7 +321,7 @@ mod tests {
     fn ir_tests() -> test_runner::Result {
         test_runner::test_snapshots("tests/", "ir", |input, _deps| {
             let tree = get_tree(input);
-            let (r, exprs) = from_tree(&tree, input);
+            let (r, exprs) = from_tree(&tree, input, "test");
             let mut diagnostics = Diagnostics::default();
             let ir = Exprs::from_ast(&exprs, r, &mut diagnostics);
             format!("{:#?}", ir.debug(r))

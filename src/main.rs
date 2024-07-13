@@ -6,7 +6,7 @@ use lambda::{
     types::TypeEnv,
 };
 use lsp::Backend;
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::Arc};
 use tokio::net::{TcpListener, TcpStream};
 use tower_lsp::{LspService, Server};
 
@@ -62,12 +62,13 @@ async fn main() {
             Server::new(read, write, socket).serve(service).await;
         }
         Command::Debug { source } => {
-            if let Some(source) = source {
-                let source = std::fs::read_to_string(source).unwrap();
+            if let Some(source_name) = source {
+                let source = std::fs::read_to_string(&source_name).unwrap();
                 let tree = get_tree(&source);
                 println!("{:#}", tree.root_node());
 
-                let (root, exprs) = from_tree(&tree, &source);
+                let filename = source_name.display().to_string();
+                let (root, exprs) = from_tree(&tree, &source, &filename);
                 let mut diagnostics = Diagnostics::default();
                 let ir = lambda::ir::Exprs::from_ast(&exprs, root, &mut diagnostics);
 
@@ -86,9 +87,10 @@ async fn main() {
         }
         Command::Run { source } => {
             if let Some(source_name) = source {
-                let source = std::fs::read_to_string(source_name).unwrap();
+                let source = std::fs::read_to_string(&source_name).unwrap();
                 let tree = get_tree(&source);
-                let (root, exprs) = from_tree(&tree, &source);
+                let filename = source_name.display().to_string();
+                let (root, exprs) = from_tree(&tree, &source, &filename);
                 let mut diagnostics = Diagnostics::default();
                 let ir = lambda::ir::Exprs::from_ast(&exprs, root, &mut diagnostics);
                 let mut runtime = Default::default();
@@ -96,7 +98,7 @@ async fn main() {
                 if diagnostics.has_errors() {
                     diagnostics.iter().for_each(|d| {
                         d.to_report()
-                            .eprint(("test", ariadne::Source::from(source.clone())))
+                            .eprint((Arc::from("test"), ariadne::Source::from(source.clone())))
                             .unwrap();
                     });
                     return;

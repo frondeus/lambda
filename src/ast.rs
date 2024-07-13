@@ -1,11 +1,14 @@
 use std::collections::BTreeMap;
-pub use tree_sitter::Node as SyntaxNode;
 pub use tree_sitter::Tree as SyntaxTree;
+
+use crate::source::Spanned;
 
 pub mod arbitrary;
 pub mod builder;
 pub mod from_cst;
 pub mod queries;
+
+pub type SyntaxNode<'a> = Spanned<tree_sitter::Node<'a>>;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Ord, PartialOrd, Default)]
 pub struct ExprId(pub usize);

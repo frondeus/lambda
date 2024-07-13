@@ -1,15 +1,16 @@
+use lambda::ast::SyntaxNode;
 use ropey::Rope;
 use tower_lsp::lsp_types::{Position, Range};
-use tree_sitter::{InputEdit, Node, Point};
+use tree_sitter::{InputEdit, Point};
 
 pub trait NodeExt {
     fn range(&self) -> Range;
 }
 
-impl<'a> NodeExt for Node<'a> {
+impl<'a> NodeExt for SyntaxNode<'a> {
     fn range(&self) -> Range {
-        let start = self.start_position();
-        let end = self.end_position();
+        let start = self.node.start_position();
+        let end = self.node.end_position();
 
         Range {
             start: to_position(start),

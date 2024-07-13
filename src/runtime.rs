@@ -142,7 +142,7 @@ mod tests {
     fn eval_tests() -> test_runner::Result {
         test_runner::test_snapshots("tests/", "eval", |input, _deps| {
             let tree = get_tree(input);
-            let (r, exprs) = from_tree(&tree, input);
+            let (r, exprs) = from_tree(&tree, input, "test");
             let mut diagnostics = Diagnostics::default();
             let ir = Exprs::from_ast(&exprs, r, &mut diagnostics);
             _ = TypeEnv::infer(&ir, r, &mut diagnostics);

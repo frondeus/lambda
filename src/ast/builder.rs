@@ -78,7 +78,7 @@ pub fn atom(ex: Expr) -> impl BuilderFn {
     move |_e: &mut Exprs| ex
 }
 
-pub fn var(name: &str) -> impl BuilderFn {
+pub fn var<'t>(name: impl ToString) -> impl BuilderFn<'t> {
     let name = name.to_string();
     move |e: &mut Exprs| Expr::Var {
         name: e.push_str(name),
@@ -93,7 +93,7 @@ pub fn boolean<'t>(b: bool) -> impl BuilderFn<'t> {
     })
 }
 
-fn var_def<'t>(arg: &'t str) -> impl BuilderFn<'t> {
+fn var_def<'t>(arg: impl ToString) -> impl BuilderFn<'t> {
     let arg = arg.to_string();
     move |e: &mut Exprs<'t>| Expr::VarDef {
         name: e.push_str(arg),
@@ -110,7 +110,7 @@ pub fn def<'t>(arg: impl VarDefLike<'t>, ret: impl BuilderFn<'t>) -> impl Builde
 }
 
 pub struct VarDef<'t> {
-    pub arg: &'t str,
+    pub arg: String,
     pub node: Option<SyntaxNode<'t>>,
 }
 impl<'t> BuilderFn<'t> for VarDef<'t> {
@@ -172,7 +172,7 @@ impl<'t> BuilderFn<'t> for bool {
 
 impl<'t> BuilderFn<'t> for &'t str {
     fn build(self, e: &mut Exprs<'t>) -> Expr<'t> {
-        var(self).build(e)
+        var(self.to_string()).build(e)
     }
 }
 
@@ -299,7 +299,7 @@ mod builder_tests {
 
     #[test]
     fn defn_tests() {
-        let a = def("a", def("b", var("a"))).root();
+        let a = def("a", def("b", var("a".to_string()))).root();
 
         let b = ("a", "b").ret("a").root();
 
@@ -308,7 +308,7 @@ mod builder_tests {
 
     #[test]
     fn calln_tests() {
-        let a = call(call(var("a"), boolean(true)), boolean(false)).root();
+        let a = call(call(var("a".to_string()), boolean(true)), boolean(false)).root();
 
         let b = calln("a", (true, false)).root();
 
