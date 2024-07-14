@@ -1,5 +1,7 @@
 use std::collections::{BTreeMap, VecDeque};
 
+use tree_sitter::Point;
+
 use crate::{
     ast::{ExprId, InternId, SyntaxNode},
     diagnostics::Diagnostics,
@@ -70,6 +72,7 @@ pub struct Exprs<'a> {
     pub s_to_i: BTreeMap<String, InternId>,
     pub intern_counter: InternId,
     pub vars: Vec<Variable>,
+    pub scopes: Vec<Scope>,
 }
 
 #[derive(Debug)]
@@ -89,6 +92,7 @@ impl<'a> Exprs<'a> {
             s_to_i: e.s_to_i.clone(),
             intern_counter: e.intern_counter,
             vars: vec![],
+            scopes: vec![],
         };
 
         let ir = fix_scope(ir, root, diagnostics);
@@ -116,21 +120,67 @@ impl<'a> Exprs<'a> {
         self.e.iter().enumerate().map(|(id, e)| (ExprId(id), e))
     }
 
+    pub fn scopes_in_point(&self, point: Point) -> impl Iterator<Item = &Scope> {
+        tracing::info!("Point: {point:?}");
+        self.scopes.iter().filter(move |s| {
+            s.range
+                .map(|r| r.start_point <= point && point <= r.end_point)
+                .unwrap_or(false)
+        })
+    }
+
     pub fn debug(&self, root: Option<ExprId>) -> Option<DebugExpr> {
         let root = root?;
         Some(self.get(root).debug(self))
     }
 }
 
-#[derive(Default, Debug)]
-struct Scope {
-    vars: BTreeMap<InternId, VarId>,
+#[derive(Debug)]
+pub struct Scope {
+    pub vars: BTreeMap<InternId, VarId>,
+    pub range: Option<tree_sitter::Range>,
+    pub depth: usize,
+}
+
+impl Scope {
+    fn new(range: Option<tree_sitter::Range>) -> Self {
+        Self {
+            vars: BTreeMap::new(),
+            range,
+            depth: 0,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
 enum StackItem {
     Expr(Option<ExprId>),
     ScopePop,
+}
+
+struct ScopeStack {
+    scopes: Vec<Scope>,
+    stack: Vec<usize>,
+}
+
+impl ScopeStack {
+    fn push(&mut self, mut scope: Scope) {
+        let idx = self.scopes.len();
+        let depth = self.stack.len();
+        scope.depth = depth;
+        self.scopes.push(scope);
+        self.stack.push(idx);
+    }
+    fn pop(&mut self) {
+        self.stack.pop();
+    }
+    fn iter(&self) -> impl DoubleEndedIterator<Item = &Scope> {
+        self.stack.iter().map(move |&idx| &self.scopes[idx])
+    }
+    fn last_mut(&mut self) -> Option<&mut Scope> {
+        let idx = self.stack.last()?;
+        Some(&mut self.scopes[*idx])
+    }
 }
 
 fn fix_scope<'a>(exprs: Exprs<'a>, e: ExprId, diagnostics: &mut Diagnostics) -> Exprs<'a> {
@@ -140,9 +190,13 @@ fn fix_scope<'a>(exprs: Exprs<'a>, e: ExprId, diagnostics: &mut Diagnostics) -> 
         s_to_i,
         intern_counter,
         mut vars,
+        scopes,
     } = exprs;
     let mut var_counter = VarId(0);
-    let mut scopes: Vec<Scope> = vec![];
+    let mut scope_stack: ScopeStack = ScopeStack {
+        scopes,
+        stack: vec![],
+    };
     let mut stack: VecDeque<StackItem> = {
         let mut v: VecDeque<_> = Default::default();
         v.push_front(StackItem::Expr(Some(e)));
@@ -153,23 +207,24 @@ fn fix_scope<'a>(exprs: Exprs<'a>, e: ExprId, diagnostics: &mut Diagnostics) -> 
             StackItem::Expr(Some(e)) => e,
             StackItem::Expr(None) => continue,
             StackItem::ScopePop => {
-                scopes.pop();
+                scope_stack.pop();
                 continue;
             }
         };
 
         match &mut exprs[e.0] {
-            Expr::Def { arg, body, node: _ } => {
+            Expr::Def { arg, body, node } => {
                 stack.push_back(StackItem::ScopePop);
                 stack.push_back(StackItem::Expr(*body));
                 stack.push_back(StackItem::Expr(*arg));
-                scopes.push(Scope::default());
+                let range = node.as_ref().map(|node| node.range);
+                scope_stack.push(Scope::new(range));
             }
             Expr::Bool { value: _, node: _ } => (),
             Expr::Var { name, id, node } => {
-                let mut scopes = scopes.iter().rev();
+                let mut scope_stack = scope_stack.iter().rev();
 
-                let var = scopes.find_map(|s| s.vars.get(name).copied());
+                let var = scope_stack.find_map(|s| s.vars.get(name).copied());
                 if var.is_none() {
                     diagnostics.push(
                         node,
@@ -179,7 +234,7 @@ fn fix_scope<'a>(exprs: Exprs<'a>, e: ExprId, diagnostics: &mut Diagnostics) -> 
                 *id = var;
             }
             Expr::VarDef { name, id, node: _ } => {
-                if let Some(scope) = scopes.last_mut() {
+                if let Some(scope) = scope_stack.last_mut() {
                     let var = var_counter;
                     var_counter.0 += 1;
 
@@ -206,13 +261,14 @@ fn fix_scope<'a>(exprs: Exprs<'a>, e: ExprId, diagnostics: &mut Diagnostics) -> 
                 name,
                 value,
                 body,
-                node: _,
+                node,
             } => {
                 stack.push_back(StackItem::ScopePop);
                 stack.push_back(StackItem::Expr(*body));
                 stack.push_back(StackItem::Expr(*value));
                 stack.push_back(StackItem::Expr(*name));
-                scopes.push(Scope::default());
+                let range = node.as_ref().map(|node| node.range);
+                scope_stack.push(Scope::new(range));
             }
         }
     }
@@ -222,6 +278,7 @@ fn fix_scope<'a>(exprs: Exprs<'a>, e: ExprId, diagnostics: &mut Diagnostics) -> 
         s_to_i,
         intern_counter,
         vars,
+        scopes: scope_stack.scopes,
     }
 }
 

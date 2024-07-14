@@ -18,14 +18,16 @@ use tokio::sync::RwLock;
 use tower_lsp::{
     jsonrpc::Result,
     lsp_types::{
-        Diagnostic, DiagnosticSeverity, DidChangeConfigurationParams, DidChangeTextDocumentParams,
-        DidChangeWatchedFilesParams, DidChangeWorkspaceFoldersParams, DidCloseTextDocumentParams,
-        DidOpenTextDocumentParams, DidSaveTextDocumentParams, GotoDefinitionParams,
-        GotoDefinitionResponse, Hover, HoverContents, HoverParams, HoverProviderCapability,
-        InitializeParams, InitializeResult, InitializedParams, InlayHint, InlayHintKind,
-        InlayHintLabel, InlayHintParams, Location, MarkedString, MessageType, OneOf,
-        ServerCapabilities, TextDocumentContentChangeEvent, TextDocumentSyncCapability,
-        TextDocumentSyncKind, Url, WorkspaceFoldersServerCapabilities, WorkspaceServerCapabilities,
+        CompletionItem, CompletionItemKind, CompletionOptions, CompletionParams,
+        CompletionResponse, Diagnostic, DiagnosticSeverity, DidChangeConfigurationParams,
+        DidChangeTextDocumentParams, DidChangeWatchedFilesParams, DidChangeWorkspaceFoldersParams,
+        DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams,
+        GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverContents, HoverParams,
+        HoverProviderCapability, InitializeParams, InitializeResult, InitializedParams, InlayHint,
+        InlayHintKind, InlayHintLabel, InlayHintParams, Location, MarkedString, MessageType, OneOf,
+        ServerCapabilities, TextDocumentContentChangeEvent, TextDocumentPositionParams,
+        TextDocumentSyncCapability, TextDocumentSyncKind, Url, WorkspaceFoldersServerCapabilities,
+        WorkspaceServerCapabilities,
     },
     Client, LanguageServer,
 };
@@ -48,6 +50,7 @@ pub struct State {
 
 #[derive(Debug)]
 struct File {
+    filename: String,
     tree: SyntaxTree,
     source: Rope,
 }
@@ -70,6 +73,18 @@ impl Backend {
             client,
             state: Default::default(),
         }
+    }
+
+    async fn file_from_text_document_position(
+        &self,
+        params: &TextDocumentPositionParams,
+    ) -> Option<(Arc<File>, Point)> {
+        let uri = params.text_document.uri.to_file_path().ok();
+        let file = self.state.read().await.maybe_get_tree(uri)?;
+
+        let position = &params.position;
+        let point = Point::new(position.line as usize, position.character as usize);
+        Some((file, point))
     }
 
     async fn update_file_with_changes(
@@ -110,6 +125,7 @@ impl Backend {
         *old_state = Arc::new(File {
             source,
             tree: new_tree,
+            filename: old_state.filename.clone(),
         });
         Some(Arc::clone(old_state))
     }
@@ -119,6 +135,7 @@ impl Backend {
             return None;
         };
         let source = Rope::from_str(&source);
+        let filename = file_path.display().to_string();
 
         let mut state = self.state.write().await;
 
@@ -130,6 +147,7 @@ impl Backend {
                 let arc = Arc::new(File {
                     tree: new_tree,
                     source,
+                    filename,
                 });
                 slot.insert(Arc::clone(&arc));
                 Some(arc)
@@ -138,6 +156,7 @@ impl Backend {
                 let arc = Arc::new(File {
                     tree: get_tree(&source.to_string()),
                     source,
+                    filename,
                 });
                 slot.insert(Arc::clone(&arc));
                 Some(arc)
@@ -149,10 +168,13 @@ impl Backend {
         let Some(file) = file else {
             return;
         };
-        let File { tree, source } = &*file;
+        let File {
+            tree,
+            source,
+            filename,
+        } = &*file;
         let src = format!("{source}");
-        let filename = uri.to_file_path().unwrap().display().to_string();
-        let (root_expr, exprs) = from_tree(tree, &src, &filename);
+        let (root_expr, exprs) = from_tree(tree, &src, filename);
         let mut diagnostics = Diagnostics::default();
         let Some(root_expr) = root_expr else {
             return;
@@ -198,6 +220,13 @@ impl LanguageServer for Backend {
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
                 definition_provider: Some(OneOf::Left(true)),
                 inlay_hint_provider: Some(OneOf::Left(true)),
+                completion_provider: Some(CompletionOptions {
+                    resolve_provider: Some(true),
+                    trigger_characters: Some(vec![" ".to_string()]),
+                    all_commit_characters: None,
+                    work_done_progress_options: Default::default(),
+                    completion_item: Default::default(),
+                }),
                 // diagnostic_provider: Some(DiagnosticServerCapabilities::Options(
                 //     DiagnosticOptions {
                 //         identifier: None,
@@ -285,34 +314,73 @@ impl LanguageServer for Backend {
     }
 
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
-        let Some(file) = self.state.read().await.maybe_get_tree(
-            params
-                .text_document_position_params
-                .text_document
-                .uri
-                .to_file_path()
-                .ok(),
-        ) else {
-            return Ok(None);
-        };
-        let File { tree, source } = &*file;
+        Ok(self.hover_inner(params).await)
+    }
 
-        let position = &params.text_document_position_params.position;
-        let point = Point::new(position.line as usize, position.character as usize);
+    async fn inlay_hint(&self, params: InlayHintParams) -> Result<Option<Vec<InlayHint>>> {
+        let res = self.inlay_hint_inner(params).await.unwrap_or_default();
+
+        Ok(Some(res))
+    }
+
+    async fn goto_definition(
+        &self,
+        params: GotoDefinitionParams,
+    ) -> Result<Option<GotoDefinitionResponse>> {
+        Ok(self.goto_definition_inner(params).await)
+    }
+
+    async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
+        Ok(self.completion_inner(params).await)
+    }
+
+    async fn completion_resolve(&self, params: CompletionItem) -> Result<CompletionItem> {
+        Ok(params)
+    }
+
+    // async fn completion_item(&self, params: Completion)
+
+    // async fn diagnostic(
+    //     &self,
+    //     _params: DocumentDiagnosticParams,
+    // ) -> Result<DocumentDiagnosticReportResult> {
+    //     tracing::info!("TODO: Diagnostic");
+    //     Ok(DocumentDiagnosticReportResult::Report(
+    //         DocumentDiagnosticReport::Full(RelatedFullDocumentDiagnosticReport {
+    //             related_documents: None,
+    //             full_document_diagnostic_report: FullDocumentDiagnosticReport {
+    //                 result_id: None,
+    //                 items: vec![Diagnostic {
+    //                     range: Range::default(),
+    //                     severity: Some(DiagnosticSeverity::ERROR),
+    //                     code: None,
+    //                     code_description: None,
+    //                     source: Some("lambda".to_string()),
+    //                     message: "TODO".to_string(),
+    //                     related_information: None,
+    //                     tags: None,
+    //                     data: None,
+    //                 }],
+    //             },
+    //         }),
+    //     ))
+    // }
+}
+
+impl Backend {
+    async fn hover_inner(&self, params: HoverParams) -> Option<Hover> {
+        let (file, point) = self
+            .file_from_text_document_position(&params.text_document_position_params)
+            .await?;
+        let File {
+            tree,
+            source,
+            filename,
+        } = &*file;
 
         let src = format!("{source}");
-        let filename = params
-            .text_document_position_params
-            .text_document
-            .uri
-            .to_file_path()
-            .unwrap()
-            .display()
-            .to_string();
-        let (root_expr, exprs) = from_tree(tree, &src, &filename);
-        let Some(root_expr) = root_expr else {
-            return Ok(None);
-        };
+        let (root_expr, exprs) = from_tree(tree, &src, filename);
+        let root_expr = root_expr?;
         let mut diagnostics = Diagnostics::default();
         let ir = lambda::ir::Exprs::from_ast(&exprs, root_expr, &mut diagnostics);
         tracing::info!("`{}`", source);
@@ -321,14 +389,11 @@ impl LanguageServer for Backend {
 
         let root = tree.root_node();
         let node = root.named_descendant_for_point_range(point, point).unwrap();
-        let node = to_spanned(node, &src);
+        let node = to_spanned(node, &src, filename);
 
         // tracing::info!("Node: {:#}", node);
 
-        let Some(node_expr_id) = exprs.find_expr_with_node(node) else {
-            // tracing::info!("Found no expr with this node");
-            return Ok(None);
-        };
+        let node_expr_id = exprs.find_expr_with_node(node)?;
 
         let (types, _ty) = TypeEnv::infer(&ir, root_expr, &mut diagnostics);
 
@@ -344,41 +409,30 @@ impl LanguageServer for Backend {
         //     }
         // }
 
-        Ok(Some(Hover {
+        Some(Hover {
             contents: HoverContents::Scalar(MarkedString::from_markdown(markdown)),
             range: None,
-        }))
+        })
     }
 
-    async fn inlay_hint(&self, params: InlayHintParams) -> Result<Option<Vec<InlayHint>>> {
-        let Some(file) = self
+    async fn inlay_hint_inner(&self, params: InlayHintParams) -> Option<Vec<InlayHint>> {
+        let file = self
             .state
             .read()
             .await
-            .maybe_get_tree(params.text_document.uri.to_file_path().ok())
-        else {
-            return Ok(None);
-        };
-        let File { tree, source } = &*file;
+            .maybe_get_tree(params.text_document.uri.to_file_path().ok())?;
+        let File {
+            tree,
+            source,
+            filename,
+        } = &*file;
 
         tracing::info!("Inlay hint for {}", params.text_document.uri);
         let src = format!("{source}");
-        let filename = params
-            .text_document
-            .uri
-            .to_file_path()
-            .unwrap()
-            .display()
-            .to_string();
-        let (root_expr, exprs) = from_tree(tree, &src, &filename);
-        let Some(root_expr) = root_expr else {
-            return Ok(Some(vec![]));
-        };
+        let (root_expr, exprs) = from_tree(tree, &src, filename);
+        let root_expr = root_expr?;
         let mut diagnostics = Diagnostics::default();
         let ir = lambda::ir::Exprs::from_ast(&exprs, root_expr, &mut diagnostics);
-        // let mut types = TypeEnv::default();
-
-        // let root = tree.root_node();
         let (types, _) = TypeEnv::infer(&ir, root_expr, &mut diagnostics);
 
         let range = params.range;
@@ -415,51 +469,35 @@ impl LanguageServer for Backend {
         // tracing::info!("{:#}", tree.root_node());
         tracing::info!("Hints: {}", hints.len());
 
-        Ok(Some(hints))
+        Some(hints)
     }
 
-    async fn goto_definition(
+    async fn goto_definition_inner(
         &self,
         params: GotoDefinitionParams,
-    ) -> Result<Option<GotoDefinitionResponse>> {
-        let Some(file) = self.state.read().await.maybe_get_tree(
-            params
-                .text_document_position_params
-                .text_document
-                .uri
-                .to_file_path()
-                .ok(),
-        ) else {
-            return Ok(None);
-        };
-        let File { tree, source } = &*file;
-
-        let position = &params.text_document_position_params.position;
-        let point = Point::new(position.line as usize, position.character as usize);
-
+    ) -> Option<GotoDefinitionResponse> {
+        let (file, point) = self
+            .file_from_text_document_position(&params.text_document_position_params)
+            .await?;
+        let File {
+            tree,
+            source,
+            filename,
+        } = &*file;
         let src = format!("{source}");
-        let filename = params
-            .text_document_position_params
-            .text_document
-            .uri
-            .to_file_path()
-            .unwrap()
-            .display()
-            .to_string();
-        let (root_expr, exprs) = from_tree(tree, &src, &filename);
-        let Some(root_expr) = root_expr else {
-            return Ok(None);
-        };
+
+        let (root_expr, exprs) = from_tree(tree, &src, filename);
+        tracing::info!("GOTO def {:?}", root_expr);
+        let root_expr = root_expr?;
 
         let mut diagnostics = Diagnostics::default();
         let ir = lambda::ir::Exprs::from_ast(&exprs, root_expr, &mut diagnostics);
 
         let root = tree.root_node();
         let node = root.named_descendant_for_point_range(point, point).unwrap();
-        let node = to_spanned(node, &src);
-        let Some(node_expr_id) = exprs.find_expr_with_node(node) else {
-            return Ok(None);
-        };
+        let node = to_spanned(node, &src, filename);
+        let node_expr_id = exprs.find_expr_with_node(node)?;
+        tracing::info!("GOTO def {:?}", node_expr_id);
 
         let expr = ir.get(node_expr_id);
         let var = match expr {
@@ -468,46 +506,79 @@ impl LanguageServer for Backend {
                 id: Some(id),
                 node: _,
             } => *id,
-            _ => return Ok(None),
+            _ => return None,
         };
         let var = ir.get_var(var);
         let def_id = var.defined;
-        let Some(def) = ir.get(def_id).node() else {
-            return Ok(None);
-        };
+        let def = ir.get(def_id).node()?;
 
         let def_range = NodeExt::range(&def);
 
-        Ok(Some(GotoDefinitionResponse::Scalar(Location {
+        Some(GotoDefinitionResponse::Scalar(Location {
             // For now we have only one file
             uri: params.text_document_position_params.text_document.uri,
             range: def_range,
-        })))
+        }))
     }
 
-    // async fn diagnostic(
-    //     &self,
-    //     _params: DocumentDiagnosticParams,
-    // ) -> Result<DocumentDiagnosticReportResult> {
-    //     tracing::info!("TODO: Diagnostic");
-    //     Ok(DocumentDiagnosticReportResult::Report(
-    //         DocumentDiagnosticReport::Full(RelatedFullDocumentDiagnosticReport {
-    //             related_documents: None,
-    //             full_document_diagnostic_report: FullDocumentDiagnosticReport {
-    //                 result_id: None,
-    //                 items: vec![Diagnostic {
-    //                     range: Range::default(),
-    //                     severity: Some(DiagnosticSeverity::ERROR),
-    //                     code: None,
-    //                     code_description: None,
-    //                     source: Some("lambda".to_string()),
-    //                     message: "TODO".to_string(),
-    //                     related_information: None,
-    //                     tags: None,
-    //                     data: None,
-    //                 }],
-    //             },
-    //         }),
-    //     ))
-    // }
+    async fn completion_inner(&self, params: CompletionParams) -> Option<CompletionResponse> {
+        let (file, point) = self
+            .file_from_text_document_position(&params.text_document_position)
+            .await?;
+        let File {
+            tree,
+            source,
+            filename,
+        } = &*file;
+        let src = source.to_string();
+        let (root_expr, exprs) = from_tree(tree, &src, filename);
+        let root_expr = root_expr?;
+
+        let mut diagnostics = Diagnostics::default();
+        let ir = lambda::ir::Exprs::from_ast(&exprs, root_expr, &mut diagnostics);
+        let (types, _) = TypeEnv::infer(&ir, root_expr, &mut diagnostics);
+
+        tracing::info!("IR: {:#?}", &ir);
+        let mut scopes = ir.scopes_in_point(point).collect::<Vec<_>>();
+        scopes.sort_by_key(|s| s.depth);
+
+        let completions = scopes
+            .into_iter()
+            .flat_map(|scope| {
+                scope.vars.iter().map(|(var_name, var_id)| {
+                    let def = ir.get_var(*var_id);
+                    let ty = types.type_of(def.defined).map(|ty| types.print_type(ty));
+
+                    CompletionItem {
+                        label: exprs.get_str(*var_name).to_string(),
+                        label_details: None,
+                        kind: Some(CompletionItemKind::VARIABLE),
+                        detail: ty,
+                        documentation: None,
+                        deprecated: None,
+                        preselect: None,
+                        sort_text: None,
+                        filter_text: None,
+                        insert_text: None,
+                        insert_text_format: None,
+                        insert_text_mode: None,
+                        text_edit: None,
+                        additional_text_edits: None,
+                        command: None,
+                        commit_characters: None,
+                        data: None,
+                        tags: None,
+                    }
+                })
+            })
+            .collect();
+
+        // let root = tree.root_node();
+        // let node = root.named_descendant_for_point_range(point, point).unwrap();
+        // let node = to_spanned(node, &src);
+        // let Some(node_expr_id) = exprs.find_expr_with_node(node) else { return Ok(None); };
+
+        tracing::info!("Completion: {completions:?}");
+        Some(CompletionResponse::Array(completions))
+    }
 }

@@ -14,7 +14,7 @@ Therefore I cut the scope of this language to bare minimum (pure lambda calculus
 * [x] Syntax highlighting
 * [/] LSP
     * [x] Hover
-    * [ ] Completion
+    * [x] Completion
     * [x] Diagnostics
     * [ ] Formatting
     * [x] Go to definition

@@ -30,10 +30,11 @@ pub fn get_tree_diff(code: &str, old: &SyntaxTree) -> SyntaxTree {
 pub fn to_spanned<'t>(
     node: tree_sitter::Node<'t>,
     source: &'t str,
+    filename: &'t str,
 ) -> Spanned<tree_sitter::Node<'t>> {
     Spanned {
         range: node.range(),
-        filename: Arc::from("<test>"),
+        filename: Arc::from(filename),
         source: Arc::from(source),
         node,
     }

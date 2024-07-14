@@ -1,2 +1,4 @@
-let f = a: a;
-	f true
+let function = _first: _second: _third: _first;
+	function
+ function
+	 
