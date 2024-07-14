@@ -18,7 +18,7 @@ Therefore I cut the scope of this language to bare minimum (pure lambda calculus
     * [x] Diagnostics
     * [ ] Formatting
     * [x] Go to definition
-    * [ ] Find references
+    * [x] Find references
     * [ ] Rename
     * [x] Inlay hints
 * [ ] Formatter

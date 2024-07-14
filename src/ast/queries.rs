@@ -34,7 +34,7 @@ impl<'a> Queries<'a> for Exprs<'a> {
     fn find_expr_with_node(&self, node: SyntaxNode<'a>) -> Option<ExprId> {
         for (idx, e) in self.e.iter().enumerate() {
             if let Some(e_node) = e.node() {
-                tracing::info!("* {idx} - {e_node:?} - {e:?} {node:?}");
+                // tracing::info!("* {idx} - {e_node:?} - {e:?} {node:?}");
                 if e_node == node {
                     // if let Some(_) = e_node.child_containing_descendant(node) {
                     return Some(ExprId(idx));

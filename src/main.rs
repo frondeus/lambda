@@ -1,3 +1,5 @@
+#![deny(clippy::unwrap_used, clippy::expect_used)]
+
 use clap::{Parser, Subcommand};
 use lambda::{
     ast::from_cst::{from_tree, get_tree},
@@ -34,8 +36,7 @@ enum Command {
 
 mod lsp;
 
-#[tokio::main]
-async fn main() {
+async fn main_inner() -> anyhow::Result<()> {
     let args = Args::parse();
     tracing_subscriber::fmt().init();
 
@@ -46,14 +47,15 @@ async fn main() {
                 let stdout = tokio::io::stdout();
 
                 let (service, socket) = LspService::new(Backend::new);
-                return Server::new(stdin, stdout, socket).serve(service).await;
+                Server::new(stdin, stdout, socket).serve(service).await;
+                return Ok(());
             }
 
             let stream = if stream {
-                TcpStream::connect("127.0.0.1:9257").await.unwrap()
+                TcpStream::connect("127.0.0.1:9257").await?
             } else {
-                let listener = TcpListener::bind("127.0.0.1:9257").await.unwrap();
-                let (stream, _) = listener.accept().await.unwrap();
+                let listener = TcpListener::bind("127.0.0.1:9257").await?;
+                let (stream, _) = listener.accept().await?;
                 stream
             };
 
@@ -63,7 +65,7 @@ async fn main() {
         }
         Command::Debug { source } => {
             if let Some(source_name) = source {
-                let source = std::fs::read_to_string(&source_name).unwrap();
+                let source = tokio::fs::read_to_string(&source_name).await?;
                 let tree = get_tree(&source);
                 println!("{:#}", tree.root_node());
 
@@ -71,50 +73,49 @@ async fn main() {
                 let (root, exprs) = from_tree(&tree, &source, &filename);
                 let Some(root) = root else {
                     eprintln!("<Nothing to do>");
-                    return;
+                    return Ok(());
                 };
                 let mut diagnostics = Diagnostics::default();
                 let ir = lambda::ir::Exprs::from_ast(&exprs, root, &mut diagnostics);
 
                 println!("{:#?}", exprs.debug(Some(root)));
                 let (types, ty) = TypeEnv::infer(&ir, root, &mut diagnostics);
-                // match TypeEnv::infer(&ir, root) {
-                //     Err((_, e)) => {
-                //         eprintln!("{e}");
-                //         return;
-                //     }
-                // Ok((types, o)) => {
                 println!(":: {:?}", ty.debug(&types))
-                //     }
-                // }
             }
         }
         Command::Run { source } => {
             if let Some(source_name) = source {
-                let source = std::fs::read_to_string(&source_name).unwrap();
+                let source = tokio::fs::read_to_string(&source_name).await?;
                 let tree = get_tree(&source);
                 let filename = source_name.display().to_string();
                 let (root, exprs) = from_tree(&tree, &source, &filename);
                 let Some(root) = root else {
                     eprintln!("<Nothing to do>");
-                    return;
+                    return Ok(());
                 };
                 let mut diagnostics = Diagnostics::default();
                 let ir = lambda::ir::Exprs::from_ast(&exprs, root, &mut diagnostics);
                 let mut runtime = Default::default();
                 _ = TypeEnv::infer(&ir, root, &mut diagnostics);
                 if diagnostics.has_errors() {
-                    diagnostics.iter().for_each(|d| {
+                    for d in diagnostics.iter() {
                         d.to_report()
-                            .eprint((Arc::from("test"), ariadne::Source::from(source.clone())))
-                            .unwrap();
-                    });
-                    return;
+                            .eprint((Arc::from("test"), ariadne::Source::from(source.clone())))?;
+                    }
+                    return Ok(());
                 }
 
                 let result = eval(&exprs, &mut runtime, root);
                 println!("{result}");
             }
         }
+    }
+    Ok(())
+}
+
+#[tokio::main]
+async fn main() {
+    if let Err(e) = main_inner().await {
+        eprintln!("{e:#}");
     }
 }

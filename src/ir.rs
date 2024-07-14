@@ -78,6 +78,7 @@ pub struct Exprs<'a> {
 #[derive(Debug)]
 pub struct Variable {
     pub defined: ExprId,
+    pub references: Vec<ExprId>,
 }
 
 impl<'a> Exprs<'a> {
@@ -225,11 +226,17 @@ fn fix_scope<'a>(exprs: Exprs<'a>, e: ExprId, diagnostics: &mut Diagnostics) -> 
                 let mut scope_stack = scope_stack.iter().rev();
 
                 let var = scope_stack.find_map(|s| s.vars.get(name).copied());
-                if var.is_none() {
-                    diagnostics.push(
-                        node,
-                        format!("Variable `{}` is not defined anywhere", i_to_s[name]),
-                    );
+                match var {
+                    Some(var) => {
+                        let var = &mut vars[var.0];
+                        var.references.push(e);
+                    }
+                    None => {
+                        diagnostics.push(
+                            node,
+                            format!("Variable `{}` is not defined anywhere", i_to_s[name]),
+                        );
+                    }
                 }
                 *id = var;
             }
@@ -239,7 +246,10 @@ fn fix_scope<'a>(exprs: Exprs<'a>, e: ExprId, diagnostics: &mut Diagnostics) -> 
                     var_counter.0 += 1;
 
                     scope.vars.insert(*name, var);
-                    vars.push(Variable { defined: e });
+                    vars.push(Variable {
+                        defined: e,
+                        references: vec![],
+                    });
                     *id = var;
                 }
             }

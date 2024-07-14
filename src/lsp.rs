@@ -25,9 +25,9 @@ use tower_lsp::{
         GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverContents, HoverParams,
         HoverProviderCapability, InitializeParams, InitializeResult, InitializedParams, InlayHint,
         InlayHintKind, InlayHintLabel, InlayHintParams, Location, MarkedString, MessageType, OneOf,
-        ServerCapabilities, TextDocumentContentChangeEvent, TextDocumentPositionParams,
-        TextDocumentSyncCapability, TextDocumentSyncKind, Url, WorkspaceFoldersServerCapabilities,
-        WorkspaceServerCapabilities,
+        ReferenceParams, ServerCapabilities, TextDocumentContentChangeEvent,
+        TextDocumentPositionParams, TextDocumentSyncCapability, TextDocumentSyncKind, Url,
+        WorkspaceFoldersServerCapabilities, WorkspaceServerCapabilities,
     },
     Client, LanguageServer,
 };
@@ -219,6 +219,7 @@ impl LanguageServer for Backend {
                 }),
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
                 definition_provider: Some(OneOf::Left(true)),
+                references_provider: Some(OneOf::Left(true)),
                 inlay_hint_provider: Some(OneOf::Left(true)),
                 completion_provider: Some(CompletionOptions {
                     resolve_provider: Some(true),
@@ -338,6 +339,11 @@ impl LanguageServer for Backend {
         Ok(params)
     }
 
+    async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
+        let res = self.references_inner(params).await.unwrap_or_default();
+        Ok(Some(res))
+    }
+
     // async fn completion_item(&self, params: Completion)
 
     // async fn diagnostic(
@@ -383,15 +389,10 @@ impl Backend {
         let root_expr = root_expr?;
         let mut diagnostics = Diagnostics::default();
         let ir = lambda::ir::Exprs::from_ast(&exprs, root_expr, &mut diagnostics);
-        tracing::info!("`{}`", source);
-        tracing::info!("{}", tree.root_node());
-        tracing::info!("{:?}", exprs.debug(Some(root_expr)));
 
         let root = tree.root_node();
-        let node = root.named_descendant_for_point_range(point, point).unwrap();
+        let node = root.named_descendant_for_point_range(point, point)?;
         let node = to_spanned(node, &src, filename);
-
-        // tracing::info!("Node: {:#}", node);
 
         let node_expr_id = exprs.find_expr_with_node(node)?;
 
@@ -399,15 +400,8 @@ impl Backend {
 
         let mut markdown = String::new();
 
-        // match infer_result {
-        //     Ok((types, _)) => {
-        let ty = types.type_of(node_expr_id).unwrap();
+        let ty = types.type_of(node_expr_id)?;
         markdown += &format!("\n\n```\n{}\n```", ty.debug(&types));
-        //     }
-        //     Err((_, e)) => {
-        //         markdown += &format!("\n\n{e}");
-        //     }
-        // }
 
         Some(Hover {
             contents: HoverContents::Scalar(MarkedString::from_markdown(markdown)),
@@ -427,7 +421,6 @@ impl Backend {
             filename,
         } = &*file;
 
-        tracing::info!("Inlay hint for {}", params.text_document.uri);
         let src = format!("{source}");
         let (root_expr, exprs) = from_tree(tree, &src, filename);
         let root_expr = root_expr?;
@@ -452,7 +445,6 @@ impl Backend {
             let ty = ty.debug(&types);
 
             if intersects((range_start, range_end), (sp, ep)) {
-                tracing::info!("Hint for {e:?} - {ty}");
                 hints.push(InlayHint {
                     position: to_position(ep),
                     label: InlayHintLabel::String(format!("{}", ty)),
@@ -465,9 +457,6 @@ impl Backend {
                 });
             }
         }
-
-        // tracing::info!("{:#}", tree.root_node());
-        tracing::info!("Hints: {}", hints.len());
 
         Some(hints)
     }
@@ -487,17 +476,15 @@ impl Backend {
         let src = format!("{source}");
 
         let (root_expr, exprs) = from_tree(tree, &src, filename);
-        tracing::info!("GOTO def {:?}", root_expr);
         let root_expr = root_expr?;
 
         let mut diagnostics = Diagnostics::default();
         let ir = lambda::ir::Exprs::from_ast(&exprs, root_expr, &mut diagnostics);
 
         let root = tree.root_node();
-        let node = root.named_descendant_for_point_range(point, point).unwrap();
+        let node = root.named_descendant_for_point_range(point, point)?;
         let node = to_spanned(node, &src, filename);
         let node_expr_id = exprs.find_expr_with_node(node)?;
-        tracing::info!("GOTO def {:?}", node_expr_id);
 
         let expr = ir.get(node_expr_id);
         let var = match expr {
@@ -538,7 +525,6 @@ impl Backend {
         let ir = lambda::ir::Exprs::from_ast(&exprs, root_expr, &mut diagnostics);
         let (types, _) = TypeEnv::infer(&ir, root_expr, &mut diagnostics);
 
-        tracing::info!("IR: {:#?}", &ir);
         let mut scopes = ir.scopes_in_point(point).collect::<Vec<_>>();
         scopes.sort_by_key(|s| s.depth);
 
@@ -573,12 +559,58 @@ impl Backend {
             })
             .collect();
 
-        // let root = tree.root_node();
-        // let node = root.named_descendant_for_point_range(point, point).unwrap();
-        // let node = to_spanned(node, &src);
-        // let Some(node_expr_id) = exprs.find_expr_with_node(node) else { return Ok(None); };
-
-        tracing::info!("Completion: {completions:?}");
         Some(CompletionResponse::Array(completions))
+    }
+
+    async fn references_inner(&self, params: ReferenceParams) -> Option<Vec<Location>> {
+        let (file, point) = self
+            .file_from_text_document_position(&params.text_document_position)
+            .await?;
+        let File {
+            tree,
+            source,
+            filename,
+        } = &*file;
+        let src = format!("{source}");
+
+        let (root_expr, exprs) = from_tree(tree, &src, filename);
+        let root_expr = root_expr?;
+
+        let mut diagnostics = Diagnostics::default();
+        let ir = lambda::ir::Exprs::from_ast(&exprs, root_expr, &mut diagnostics);
+
+        let root = tree.root_node();
+        let node = root.named_descendant_for_point_range(point, point)?;
+        let node = to_spanned(node, &src, filename);
+        let node_expr_id = exprs.find_expr_with_node(node)?;
+
+        let expr = ir.get(node_expr_id);
+        let var = match expr {
+            lambda::ir::Expr::Var {
+                name: _,
+                id: Some(id),
+                node: _,
+            } => *id,
+            lambda::ir::Expr::VarDef {
+                name: _,
+                id,
+                node: _,
+            } => *id,
+            _ => return None,
+        };
+        let var = ir.get_var(var);
+        let ref_ids = &var.references;
+
+        let refs = ref_ids
+            .iter()
+            .filter_map(|id| ir.get(*id).node())
+            .map(|node| NodeExt::range(&node))
+            .map(|range| Location {
+                uri: params.text_document_position.text_document.uri.clone(),
+                range,
+            })
+            .collect::<Vec<_>>();
+
+        Some(refs)
     }
 }
