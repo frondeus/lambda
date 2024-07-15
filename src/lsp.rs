@@ -25,9 +25,9 @@ use tower_lsp::{
         GotoDefinitionParams, GotoDefinitionResponse, Hover, HoverContents, HoverParams,
         HoverProviderCapability, InitializeParams, InitializeResult, InitializedParams, InlayHint,
         InlayHintKind, InlayHintLabel, InlayHintParams, Location, MarkedString, MessageType, OneOf,
-        ReferenceParams, ServerCapabilities, TextDocumentContentChangeEvent,
+        ReferenceParams, RenameParams, ServerCapabilities, TextDocumentContentChangeEvent,
         TextDocumentPositionParams, TextDocumentSyncCapability, TextDocumentSyncKind, Url,
-        WorkspaceFoldersServerCapabilities, WorkspaceServerCapabilities,
+        WorkspaceEdit, WorkspaceFoldersServerCapabilities, WorkspaceServerCapabilities,
     },
     Client, LanguageServer,
 };
@@ -221,6 +221,7 @@ impl LanguageServer for Backend {
                 definition_provider: Some(OneOf::Left(true)),
                 references_provider: Some(OneOf::Left(true)),
                 inlay_hint_provider: Some(OneOf::Left(true)),
+                rename_provider: Some(OneOf::Left(true)),
                 completion_provider: Some(CompletionOptions {
                     resolve_provider: Some(true),
                     trigger_characters: Some(vec![" ".to_string()]),
@@ -228,16 +229,6 @@ impl LanguageServer for Backend {
                     work_done_progress_options: Default::default(),
                     completion_item: Default::default(),
                 }),
-                // diagnostic_provider: Some(DiagnosticServerCapabilities::Options(
-                //     DiagnosticOptions {
-                //         identifier: None,
-                //         inter_file_dependencies: false,
-                //         workspace_diagnostics: true,
-                //         work_done_progress_options: WorkDoneProgressOptions {
-                //             work_done_progress: None,
-                //         }
-                //     }
-                // )),
                 ..ServerCapabilities::default()
             },
             ..InitializeResult::default()
@@ -344,33 +335,9 @@ impl LanguageServer for Backend {
         Ok(Some(res))
     }
 
-    // async fn completion_item(&self, params: Completion)
-
-    // async fn diagnostic(
-    //     &self,
-    //     _params: DocumentDiagnosticParams,
-    // ) -> Result<DocumentDiagnosticReportResult> {
-    //     tracing::info!("TODO: Diagnostic");
-    //     Ok(DocumentDiagnosticReportResult::Report(
-    //         DocumentDiagnosticReport::Full(RelatedFullDocumentDiagnosticReport {
-    //             related_documents: None,
-    //             full_document_diagnostic_report: FullDocumentDiagnosticReport {
-    //                 result_id: None,
-    //                 items: vec![Diagnostic {
-    //                     range: Range::default(),
-    //                     severity: Some(DiagnosticSeverity::ERROR),
-    //                     code: None,
-    //                     code_description: None,
-    //                     source: Some("lambda".to_string()),
-    //                     message: "TODO".to_string(),
-    //                     related_information: None,
-    //                     tags: None,
-    //                     data: None,
-    //                 }],
-    //             },
-    //         }),
-    //     ))
-    // }
+    async fn rename(&self, params: RenameParams) -> Result<Option<WorkspaceEdit>> {
+        Ok(self.rename_inner(params).await)
+    }
 }
 
 impl Backend {
@@ -612,5 +579,48 @@ impl Backend {
             .collect::<Vec<_>>();
 
         Some(refs)
+    }
+
+    async fn rename_inner(&self, params: RenameParams) -> Option<WorkspaceEdit> {
+        let (file, point) = self
+            .file_from_text_document_position(&params.text_document_position)
+            .await?;
+        let File {
+            tree,
+            source,
+            filename,
+        } = &*file;
+        let src = format!("{source}");
+
+        let (root_expr, exprs) = from_tree(tree, &src, filename);
+        let root_expr = root_expr?;
+
+        let mut diagnostics = Diagnostics::default();
+        let ir = lambda::ir::Exprs::from_ast(&exprs, root_expr, &mut diagnostics);
+
+        let root = tree.root_node();
+        let node = root.named_descendant_for_point_range(point, point)?;
+        let node = to_spanned(node, &src, filename);
+        let node_expr_id = exprs.find_expr_with_node(node)?;
+        let expr = ir.get(node_expr_id);
+        let var = match expr {
+            lambda::ir::Expr::Var {
+                name: _,
+                id: Some(id),
+                node: _,
+            } => *id,
+            lambda::ir::Expr::VarDef {
+                name: _,
+                id,
+                node: _,
+            } => *id,
+            _ => return None,
+        };
+        let var = ir.get_var(var);
+
+        // WorkspaceEdit {
+
+        // }
+        None
     }
 }

@@ -10,6 +10,7 @@ mod gen_syntax;
 mod repl;
 mod review_tests;
 mod test;
+mod zellij;
 
 fn main() {
     if let Err(e) = try_main() {
@@ -25,12 +26,13 @@ fn try_main() -> Result {
     let task = env::args().nth(1);
     let root = project_root();
     match task.as_deref() {
-        Some("gen-syntax") => gen_syntax::run(&root)?,
-        Some("review-tests") => review_tests::run(&root)?,
-        Some("test") => test::run(&root)?,
-        Some("repl") => repl::run(&root)?,
-        Some("clippy") => clippy::run(&root)?,
-        Some("fmt") => fmt::run(&root)?,
+        Some("gen-syntax") | Some("gs") => gen_syntax::run(&root)?,
+        Some("review-tests") | Some("rt") => review_tests::run(&root)?,
+        Some("test") | Some("t") => test::run(&root)?,
+        Some("zellij") | Some("z") => zellij::run(&root)?,
+        Some("repl") | Some("r") => repl::run(&root)?,
+        Some("clippy") | Some("cl") => clippy::run(&root)?,
+        Some("fmt") | Some("f") => fmt::run(&root)?,
         Some("ci") => {
             fmt::run(&root)?;
             clippy::run(&root)?;
@@ -47,11 +49,14 @@ fn try_main() -> Result {
 fn print_help() {
     eprintln!(
         "Tasks:
-        gen-syntax - Generate TreeSitter parser
-        test - Run all tests (including TreeSitter tests)
-        review-tests - Review snapshot tests
+        gen-syntax [gs] - Generate TreeSitter parser
+        review-tests [rt] - Review snapshot tests
+        test [t] - Run all tests (including TreeSitter tests)
+        clippy [cl] - Run cargo clippy
+        fmt [f] - Run cargo fmt
 
-        repl - Run REPL
+        repl [r] - Run REPL
+        zellij [z] - Run zellij layout with helix and LSP running
 
         ci - ['gen-syntax', 'test', 'review-tests']
     "

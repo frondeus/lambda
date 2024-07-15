@@ -23,14 +23,14 @@ Therefore I cut the scope of this language to bare minimum (pure lambda calculus
     * [x] Inlay hints
 * [ ] Formatter
 * [ ] REPL
+
+# Chapter 11
+* [ ] Numbers & Booleans
 * [ ] Modules
     This is not in the book, but for the sake of making
     the LSP and other parts more extensible, I will add
     simple `import` syntax. This means, all parts of the compiler have to be 
     able to handle multiple sources of code.
-* [ ] Numbers & Booleans
-
-# Chapter 11
 * [ ] Unit type
 * [ ] Ascription
 * [x] Let
