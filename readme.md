@@ -11,7 +11,12 @@ Therefore I cut the scope of this language to bare minimum (pure lambda calculus
 * [x] Type checking
 * [x] Evaluating
 * [x] Tree sitter grammar
-* [x] Syntax highlighting
+* [/] Helix support
+    * [x] Syntax highlighting
+    * [x] LSP
+    * [ ] Textobject queries
+    * [ ] Indent queries
+    * [ ] Local variables
 * [/] LSP
     * [x] Hover
     * [x] Completion
@@ -19,7 +24,7 @@ Therefore I cut the scope of this language to bare minimum (pure lambda calculus
     * [ ] Formatting
     * [x] Go to definition
     * [x] Find references
-    * [ ] Rename
+    * [x] Rename
     * [x] Inlay hints
 * [ ] Formatter
 * [ ] REPL

@@ -81,6 +81,12 @@ pub struct Variable {
     pub references: Vec<ExprId>,
 }
 
+impl Variable {
+    pub fn all_occurrences(&self) -> impl Iterator<Item = ExprId> + '_ {
+        std::iter::once(self.defined).chain(self.references.iter().copied())
+    }
+}
+
 impl<'a> Exprs<'a> {
     pub fn from_ast(
         e: &'a crate::ast::Exprs<'a>,

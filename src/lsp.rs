@@ -26,8 +26,8 @@ use tower_lsp::{
         HoverProviderCapability, InitializeParams, InitializeResult, InitializedParams, InlayHint,
         InlayHintKind, InlayHintLabel, InlayHintParams, Location, MarkedString, MessageType, OneOf,
         ReferenceParams, RenameParams, ServerCapabilities, TextDocumentContentChangeEvent,
-        TextDocumentPositionParams, TextDocumentSyncCapability, TextDocumentSyncKind, Url,
-        WorkspaceEdit, WorkspaceFoldersServerCapabilities, WorkspaceServerCapabilities,
+        TextDocumentPositionParams, TextDocumentSyncCapability, TextDocumentSyncKind, TextEdit,
+        Url, WorkspaceEdit, WorkspaceFoldersServerCapabilities, WorkspaceServerCapabilities,
     },
     Client, LanguageServer,
 };
@@ -97,6 +97,7 @@ impl Backend {
 
         let mut source = old_state.source.clone();
         let mut tree = old_state.tree.clone();
+        let mut offset: i64 = 0;
         for TextDocumentContentChangeEvent {
             range,
             range_length: _,
@@ -108,11 +109,17 @@ impl Backend {
                     source = Rope::from_str(&text);
                 }
                 Some(range) => {
-                    let start_offset = old_state.source.to_byte(range.start);
-                    let end_offset = old_state.source.to_byte(range.end);
+                    let start_offset =
+                        (old_state.source.to_byte(range.start) as i64 - offset) as usize;
+                    let end_offset = (old_state.source.to_byte(range.end) as i64 - offset) as usize;
 
+                    // tracing::info!("Change: {start_offset}..{end_offset} ({offset}) `{text}`");
+                    let old_len = end_offset - start_offset;
+                    let new_len = text.len();
                     source.remove(start_offset..end_offset);
                     source.insert(start_offset, &text);
+                    offset = old_len as i64 - new_len as i64;
+                    // tracing::info!("Change offset: {old_len} - {new_len} = {offset}");
                     let edit = old_state.source.to_input_edit(range, &text);
                     tree.edit(&edit);
                 }
@@ -618,9 +625,21 @@ impl Backend {
         };
         let var = ir.get_var(var);
 
-        // WorkspaceEdit {
+        let text_edits = var
+            .all_occurrences()
+            .filter_map(|e| ir.get(e).node())
+            .map(|node| TextEdit {
+                range: NodeExt::range(&node),
+                new_text: params.new_name.clone(),
+            })
+            .collect();
 
-        // }
-        None
+        let changes =
+            std::iter::once((params.text_document_position.text_document.uri, text_edits))
+                .collect();
+        Some(WorkspaceEdit {
+            changes: Some(changes),
+            ..Default::default()
+        })
     }
 }
