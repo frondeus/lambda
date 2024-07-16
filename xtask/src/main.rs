@@ -7,6 +7,7 @@ use std::{
 mod clippy;
 mod fmt;
 mod gen_syntax;
+mod helix;
 mod repl;
 mod review_tests;
 mod test;
@@ -33,6 +34,7 @@ fn try_main() -> Result {
         Some("repl") | Some("r") => repl::run(&root)?,
         Some("clippy") | Some("cl") => clippy::run(&root)?,
         Some("fmt") | Some("f") => fmt::run(&root)?,
+        Some("helix") | Some("hx") => helix::run(&root)?,
         Some("ci") => {
             fmt::run(&root)?;
             clippy::run(&root)?;
@@ -57,6 +59,7 @@ fn print_help() {
 
         repl [r] - Run REPL
         zellij [z] - Run zellij layout with helix and LSP running
+        helix [hx] - Build grammar for helix editor
 
         ci - ['gen-syntax', 'test', 'review-tests']
     "

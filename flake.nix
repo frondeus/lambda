@@ -46,8 +46,8 @@
         fileset = lib.fileset.unions [
           ./Cargo.toml
           ./Cargo.lock
-          ./cst
-          crate
+          ./tree-sitter-lambda
+          ./.
         ];
       };
       lambda = craneLib.buildPackage (individualCrateArgs // {

@@ -5,7 +5,7 @@ use crate::{run_command, Result};
 pub fn run(root: &Path) -> Result {
     run_command(
         "tree-sitter test",
-        root.join("cst"),
+        root.join("tree-sitter-lambda"),
         "tree-sitter",
         &["test"],
     )?;

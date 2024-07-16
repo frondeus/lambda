@@ -11,12 +11,12 @@ Therefore I cut the scope of this language to bare minimum (pure lambda calculus
 * [x] Type checking
 * [x] Evaluating
 * [x] Tree sitter grammar
-* [/] Helix support
+* [x] Helix support
     * [x] Syntax highlighting
     * [x] LSP
-    * [ ] Textobject queries
-    * [ ] Indent queries
-    * [ ] Local variables
+    * [x] Textobject queries
+    * [x] Indent queries
+    * [x] Local variables
 * [/] LSP
     * [x] Hover
     * [x] Completion

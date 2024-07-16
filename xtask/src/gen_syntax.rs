@@ -5,7 +5,7 @@ use crate::{run_command, Result};
 pub fn run(root: &Path) -> Result {
     run_command(
         "Tree Sitter codegen",
-        root.join("cst"),
+        root.join("tree-sitter-lambda"),
         "tree-sitter",
         &["generate"],
     )?;
